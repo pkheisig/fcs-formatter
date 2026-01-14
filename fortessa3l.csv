@@ -1,0 +1,58 @@
+Filter,Color
+450/50 – V-A,BV421
+450/50 - V-A,Alexa 405
+450/50 - V-A,eFluor 450
+450/50 - V-A,Hoechst
+450/50 - V-A,Pacific Blue
+450/50 - V-A,DAPI
+450/50 - V-A,Sytox
+525/50 - V-A,AmCyan
+525/50 - V-A,V500
+525/50 - V-A,BV510
+525/50 - V-A,Qdot 525
+525/50 - V-A,Krome Orange
+525/50 - V-A,Pacific Orange
+610/20 - V-A,BV605
+610/20 - V-A,eFluor 605NC
+610/20 - V-A,Qdot 605
+670/30 - V-A,BV650
+670/30 - V-A,eFluor 650NC
+670/30 - V-A,Qdot 655
+710/50 - V-A,eFluor 700NC
+710/50 - V-A,Qdot 705
+710/50 - V-A,BV711
+780/60 - V-A,BV786
+780/60 - V-A,Qdot 800
+488/10 - B-A,SSC
+525/50 - B-A,GFP
+525/50 - B-A,FITC
+525/50 - B-A,Alexa 488
+525/50 - B-A,CFSE
+575/26 - B-A,PKH26
+575/26 - B-A,PE
+610/20 - B-A,Texas Red
+610/20 - B-A,PE-CF594
+610/20 - B-A,PE-Texas Red
+610/20 - B-A,PI
+695/40 - B-A,7AAD
+695/40 - B-A,PE-Cy5
+695/40 - B-A,PerCP
+695/40 - B-A,PE-Cy5.5
+695/40 - B-A,PerCP-Cy5.5
+695/40 - B-A,PerCP eFluor 710
+780/60 - B-A,PC7
+780/60 - B-A,PE-Vio 7
+780/60 - B-A,PE-CY7
+670/30 - R-A,APC
+670/30 - R-A,TOPRO-3
+670/30 - R-A,TOTO-3
+670/30 - R-A,Alexa 647
+670/30 - R-A,eFluor 660
+730/45 - R-A,eFluor 710
+730/45 - R-A,APC-Alexa 700
+730/45 - R-A,Alexa 700
+780/60 - R-A,APC-Vio 770
+780/60 - R-A,Alexa Fluor 750
+780/60 - R-A,APC-eFluor 780
+780/60 - R-A,APC-Cy7
+780/60 - R-A,APC-H7

@@ -1,0 +1,4 @@
+customtkinter
+flowio
+tkinterdnd2
+pyinstaller

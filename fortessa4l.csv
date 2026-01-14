@@ -1,0 +1,36 @@
+Filter,Color
+450/50 - V-A,BV421
+450/50 - V-A,Alexa 405
+450/50 - V-A,eFluor 450
+450/50 - V-A,Pacific Blue
+450/50 - V-A,DAPI
+450/50 - V-A,Sytox
+525/50 - V-A,BV510
+610/20 - V-A,BV605
+670/30 - V-A,BV650
+710/50 - V-A,BV711
+780/60 - V-A,BV786
+488/10 - B-A,SSC
+529/24 - B-A,FITC
+529/24 - B-A,Alexa 488
+529/24 - B-A,GFP
+695/40 - B-A,PerCP
+695/40 - B-A,PerCP-Cy5.5
+695/40 - B-A,PerCP eFluor 710
+582/15 - YG-A,PE
+610/20 - YG-A,mCherry
+610/20 - YG-A,PE-CF 594
+610/20 - YG-A,PE-Texas Red
+610/20 - YG-A,PI
+610/20 - YG-A,7AAD
+670/14 - YG-A,PE-Cy5
+710/50 - YG-A,PE-Cy5.5
+780/60 - YG-A,PE-CY7
+670/30 - R-A,APC
+670/30 - R-A,Alexa Fluor 647
+670/30 - R-A,eFluor 660
+730/45 - R-A,Alexa Fluor 700
+780/60 - R-A,Alexa Fluor 750
+780/60 - R-A,APC-eFluor 780
+780/60 - R-A,APC-H7
+780/60 - R-A,APC-Cy7

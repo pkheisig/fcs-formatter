@@ -1,0 +1,19 @@
+# Environments
+venv/
+venv_mac/
+venv_build/
+__pycache__/
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# IDEs
+.idea/
+.vscode/
+.DS_Store
+
+# Temporary files
+*.log
+_backup/
