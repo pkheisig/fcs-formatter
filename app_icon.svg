@@ -1,0 +1,54 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#312e81;stop-opacity:1" />
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+      <stop offset="0%" style="stop-color:#4f46e5;stop-opacity:0.4" />
+      <stop offset="100%" style="stop-color:#4f46e5;stop-opacity:0" />
+    </radialGradient>
+  </defs>
+  
+  <!-- Background: Rounded Rect (standard macOS shape approximation) -->
+  <rect x="50" y="50" width="924" height="924" rx="200" ry="200" fill="url(#bgGradient)" />
+  
+  <!-- Subtle Glow -->
+  <circle cx="512" cy="512" r="400" fill="url(#glow)" />
+  
+  <!-- Grid Lines -->
+  <path d="M212 512 H812 M512 212 V812" stroke="#6366f1" stroke-width="4" stroke-opacity="0.3" />
+  <circle cx="512" cy="512" r="300" stroke="#6366f1" stroke-width="4" stroke-opacity="0.2" fill="none" />
+  
+  <!-- Scatter Plot Dots -->
+  <!-- Cluster 1: T-cells / Lymphocytes (Cyan) -->
+  <g fill="#22d3ee" opacity="0.9">
+    <circle cx="480" cy="480" r="12" />
+    <circle cx="500" cy="460" r="10" />
+    <circle cx="460" cy="500" r="14" />
+    <circle cx="490" cy="490" r="8" />
+    <circle cx="470" cy="470" r="11" />
+    <circle cx="450" cy="480" r="9" />
+  </g>
+  
+  <!-- Cluster 2: Monocytes (Purple/Pink) -->
+  <g fill="#d946ef" opacity="0.9">
+    <circle cx="580" cy="400" r="15" />
+    <circle cx="600" cy="380" r="12" />
+    <circle cx="570" cy="370" r="10" />
+    <circle cx="590" cy="410" r="13" />
+    <circle cx="620" cy="390" r="11" />
+  </g>
+  
+  <!-- Cluster 3: Granulocytes (Orange/White scatter) -->
+  <g fill="#fb923c" opacity="0.8">
+    <circle cx="650" cy="650" r="18" />
+    <circle cx="680" cy="620" r="16" />
+    <circle cx="640" cy="680" r="14" />
+    <circle cx="670" cy="660" r="12" />
+    <circle cx="700" cy="640" r="15" />
+  </g>
+  
+  <!-- Axes/Frame decorations -->
+  <path d="M362 662 L362 362 L662 362" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-opacity="0.8" fill="none" />
+</svg>
