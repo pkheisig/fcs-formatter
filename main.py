@@ -25,9 +25,7 @@ class FCSRenamerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.file_entries = {}
         self.file_vars = {} 
         self.file_buttons = {}
-        self.var_keep_hw = None 
         self.var_backup = None
-        self.custom_configs = {} 
 
         self.create_widgets()
         
@@ -43,7 +41,7 @@ class FCSRenamerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.btn_browse.pack(side="left", padx=20, pady=15)
         
         # Config Selector
-        self.lbl_config = ctk.CTkLabel(self.top_frame, text="Config:")
+        self.lbl_config = ctk.CTkLabel(self.top_frame, text="Cytometer:")
         self.lbl_config.pack(side="left", padx=(20, 5))
         
         self.update_config_dropdown()
@@ -87,7 +85,7 @@ class FCSRenamerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.setup_files_tab()
 
     def update_config_dropdown(self):
-        configs = list(FCSHandler.CONFIGURATIONS.keys()) + list(self.custom_configs.keys())
+        configs = list(FCSHandler.CONFIGURATIONS.keys())
         if hasattr(self, 'combo_config'):
             self.combo_config.configure(values=configs)
         else:
@@ -117,52 +115,52 @@ class FCSRenamerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.btn_paste = ctk.CTkButton(self.tools_frame, text="Paste Marker List/Table", command=self.open_paste_window)
         self.btn_paste.grid(row=0, column=0, padx=10, pady=5, sticky="w")
         
-        self.var_keep_hw = ctk.BooleanVar(value=True)
-        self.chk_keep_hw = ctk.CTkCheckBox(self.tools_frame, text="Keep Hardware Name in Label", variable=self.var_keep_hw)
-        self.chk_keep_hw.grid(row=0, column=1, padx=20, pady=5, sticky="w")
-
         self.btn_save_all = ctk.CTkButton(self.tools_frame, text="Save & Apply to All Files", command=self.apply_channels_to_all, fg_color="#2CC985", hover_color="#1FA66B")
         self.btn_save_all.grid(row=0, column=2, padx=20, pady=5, sticky="e")
         
         # Row 1 (Config Tools)
-        self.btn_load_config = ctk.CTkButton(self.tools_frame, text="Load Config...", width=100, command=self.load_custom_config_dialog)
+        self.btn_load_config = ctk.CTkButton(self.tools_frame, text="Load Mapping...", width=100, command=self.load_mapping_dialog)
         self.btn_load_config.grid(row=1, column=0, padx=10, pady=5, sticky="w")
         
-        self.btn_save_config = ctk.CTkButton(self.tools_frame, text="Save Current Config...", width=100, command=self.save_custom_config_dialog)
+        self.btn_save_config = ctk.CTkButton(self.tools_frame, text="Save Mapping...", width=100, command=self.save_mapping_dialog)
         self.btn_save_config.grid(row=1, column=1, padx=20, pady=5, sticky="w")
         
         self.tools_frame.grid_columnconfigure(2, weight=1)
 
-    def load_custom_config_dialog(self):
+    def load_mapping_dialog(self):
         path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])
         if path:
-            data = FCSHandler.load_custom_config(path)
-            if data:
-                name = os.path.basename(path).replace('.json', '')
-                self.custom_configs[name] = data
-                self.update_config_dropdown()
-                self.combo_config.set(name)
-                messagebox.showinfo("Config Loaded", f"Loaded configuration '{name}'.")
-            else:
-                messagebox.showerror("Error", "Failed to load configuration.")
+            try:
+                with open(path, 'r') as f:
+                    data = json.load(f)
+                if data and isinstance(data, dict):
+                    # Update entries directly
+                    for ch, val in data.items():
+                        if ch in self.entries:
+                            self.entries[ch].delete(0, "end")
+                            self.entries[ch].insert(0, val)
+                    messagebox.showinfo("Mapping Loaded", f"Loaded mapping from '{os.path.basename(path)}'.")
+                else:
+                    messagebox.showerror("Error", "Invalid mapping file format.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load mapping: {e}")
 
-    def save_custom_config_dialog(self):
+    def save_mapping_dialog(self):
         if not self.current_fcs: return
         config_data = {}
         for ch, entry in self.entries.items():
             val = entry.get()
-            if self.var_keep_hw.get() and " | " in val:
-                prefix = f"{ch} | "
-                if val.startswith(prefix):
-                    val = val[len(prefix):]
-            
             if val:
-                config_data[ch] = [val] 
+                config_data[ch] = val
         
         path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
         if path:
-            if FCSHandler.save_custom_config(path, config_data):
-                messagebox.showinfo("Success", "Configuration saved.")
+            try:
+                with open(path, 'w') as f:
+                    json.dump(config_data, f, indent=4)
+                messagebox.showinfo("Success", "Mapping saved.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save mapping: {e}")
 
     def open_paste_window(self):
         if not self.current_fcs:
@@ -416,10 +414,8 @@ class FCSRenamerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         cleaned_text = input_text.replace('\n', ',')
         config_name = self.combo_config.get()
         
-        custom = self.custom_configs.get(config_name)
-        
         channels = [k for k in self.entries.keys()]
-        mapping = FCSHandler.auto_map(channels, cleaned_text, config_name=config_name, custom_db=custom)
+        mapping = FCSHandler.auto_map(channels, cleaned_text, config_name=config_name, custom_db=None)
         
         for ch_name, new_val in mapping.items():
             if ch_name in self.entries:
@@ -435,7 +431,7 @@ class FCSRenamerApp(ctk.CTk, TkinterDnD.DnDWrapper):
         for ch_name, entry in self.entries.items():
             val = entry.get()
             current_mapping_ui[ch_name] = val
-        keep_hw = self.var_keep_hw.get()
+            
         create_backup = self.var_backup.get()
         count = 0
         errors = []
@@ -449,15 +445,7 @@ class FCSRenamerApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 final_mapping = {}
                 for ch, marker in current_mapping_ui.items():
                     if marker:
-                        if keep_hw:
-                            prefix = f"{ch} | "
-                            if marker.startswith(prefix):
-                                val = marker
-                            else:
-                                val = f"{prefix}{marker}"
-                        else:
-                            val = marker
-                        final_mapping[ch] = val
+                        final_mapping[ch] = marker
                 
                 handler.update_labels(final_mapping)
                 handler.save_file(create_backup=create_backup)

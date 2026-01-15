@@ -106,9 +106,6 @@ class FCSHandler:
     def update_labels(self, mapping):
         name_to_index = {data['name']: idx for idx, data in self.channels.items()}
         
-        if not self.flow_data.pns_labels or len(self.flow_data.pns_labels) != self.flow_data.channel_count:
-             self.flow_data.pns_labels = [''] * self.flow_data.channel_count
-
         for channel_name, new_label in mapping.items():
             if channel_name in name_to_index:
                 idx = name_to_index[channel_name]
@@ -117,8 +114,12 @@ class FCSHandler:
                 self.flow_data.text[pns_key] = new_label
                 self.channels[idx]['label'] = new_label
                 
-                if 0 <= idx - 1 < len(self.flow_data.pns_labels):
-                    self.flow_data.pns_labels[idx - 1] = new_label
+                # Also update flow_data.channels if it exists
+                # This is crucial for FlowIO to write the correct PnS value
+                if hasattr(self.flow_data, 'channels') and isinstance(self.flow_data.channels, dict):
+                    str_idx = str(idx)
+                    if str_idx in self.flow_data.channels:
+                        self.flow_data.channels[str_idx]['PnS'] = new_label
 
     def create_backup(self):
         directory = os.path.dirname(self.file_path)
@@ -178,26 +179,6 @@ class FCSHandler:
             self.file_path = new_path
             
         return new_path
-
-    @staticmethod
-    def load_custom_config(path):
-        try:
-            with open(path, 'r') as f:
-                data = json.load(f)
-            return data
-        except Exception as e:
-            print(f"Error loading config: {e}")
-            return None
-
-    @staticmethod
-    def save_custom_config(path, config_data):
-        try:
-            with open(path, 'w') as f:
-                json.dump(config_data, f, indent=4)
-            return True
-        except Exception as e:
-            print(f"Error saving config: {e}")
-            return False
 
     @staticmethod
     def auto_map(channels, input_markers, config_name="BD Fortessa 3L", custom_db=None):
