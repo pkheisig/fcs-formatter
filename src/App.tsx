@@ -1,0 +1,936 @@
+import { useEffect, useState, useRef, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { Settings, FilePlus, FolderPlus, FolderOutput, Trash2, Download, RefreshCw, Wand2, Save, FileUp, PlusCircle, FileSpreadsheet, Code, Check } from "lucide-react";
+
+type WorkspaceTab = "filenames" | "primary" | "secondary" | "parameters";
+
+type DetectorConfig = {
+  filter: string;
+  fluorophores: string[];
+  commonFluorophore: string | null;
+};
+
+type CytometerConfig = {
+  name: string;
+  detectors: DetectorConfig[];
+};
+
+type ChannelRecord = {
+  index: number;
+  detector: string;
+  originalPrimaryName: string;
+  primaryName: string;
+  secondaryName: string;
+  fluorescence: boolean;
+};
+
+type MetadataEntry = {
+  key: string;
+  value: string;
+};
+
+type FcsFileRecord = {
+  path: string;
+  directory: string;
+  fileName: string;
+  originalBaseName: string;
+  outputBaseName: string;
+  sizeBytes: number;
+  eventCount: number;
+  parameterCount: number;
+  channels: ChannelRecord[];
+  parameters: MetadataEntry[];
+};
+
+type ConfigBootstrap = {
+  defaultConfig: string;
+  configs: CytometerConfig[];
+};
+
+type ChannelMapping = {
+  id: string;
+  detector: string;
+  label: string;
+};
+
+type ProcessResult = {
+  createdFiles: string[];
+  warnings: string[];
+};
+
+const tabs: { id: WorkspaceTab; label: string; description: string }[] = [
+  { id: "filenames", label: "Filenames", description: "Autofill prefixes, suffixes, and numbered outputs." },
+  { id: "primary", label: "Primary Channels", description: "Edit $PnN detector-facing channel names." },
+  { id: "secondary", label: "Secondary Channels", description: "Edit $PnS labels and detector defaults." },
+  { id: "parameters", label: "All Parameters", description: "Inspect all TEXT-segment metadata on the selected file." }
+];
+
+function normalizeToken(value: string) {
+  return value.toLowerCase().replace("fluor", "").replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeDetector(value: string) {
+  return value.toUpperCase().replace(/[–—]/g, "-").replace(/\s+/g, "");
+}
+
+function formatBytes(sizeBytes: number) {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function incrementString(str: string, index: number) {
+  if (!str) return str;
+  return str.replace(/(\d+)(?!.*\d)/, (match) => {
+    const num = parseInt(match, 10) + index;
+    return String(num).padStart(match.length, '0');
+  });
+}
+
+export default function App() {
+  const [configs, setConfigs] = useState<CytometerConfig[]>([]);
+  const [files, setFiles] = useState<FcsFileRecord[]>([]);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("filenames");
+  const [configName, setConfigName] = useState("");
+  const [outputDirectory, setOutputDirectory] = useState<string | null>(null);
+  
+  const [showSettings, setShowSettings] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [defaultKeepOriginals, setDefaultKeepOriginals] = useState(true);
+  const [defaultSecondaryMapping, setDefaultSecondaryMapping] = useState(true);
+
+  const [channelMappings, setChannelMappings] = useState<ChannelMapping[]>(() => {
+    const saved = localStorage.getItem("channelMappings");
+    try {
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("channelMappings", JSON.stringify(channelMappings));
+  }, [channelMappings]);
+
+  const [keepOriginals, setKeepOriginals] = useState(true);
+  const [prefix, setPrefix] = useState("");
+  const [incrementPrefix, setIncrementPrefix] = useState(false);
+  const [suffix, setSuffix] = useState("");
+  const [incrementSuffix, setIncrementSuffix] = useState(false);
+  const [useNumbering, setUseNumbering] = useState(false);
+  const [numberStart, setNumberStart] = useState("1");
+  const [numberDigits, setNumberDigits] = useState("3");
+  const [isBusy, setIsBusy] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [status, setStatus] = useState("Load `.fcs` files to begin.");
+  const [lastExport, setLastExport] = useState<string[]>([]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  const filesRef = useRef<FcsFileRecord[]>([]);
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+
+  useEffect(() => {
+    void loadConfigs();
+  }, []);
+
+  const selectedFile = files.find((file) => file.path === selectedPath) ?? files[0] ?? null;
+  const activeConfig = configs.find((config) => config.name === configName) ?? configs[0] ?? null;
+
+  useEffect(() => {
+    if (!selectedFile && files.length > 0) {
+      setSelectedPath(files[0].path);
+    }
+  }, [files, selectedFile]);
+
+  const settingsRef = useRef({ defaultSecondaryMapping, configs, configName, channelMappings });
+  useEffect(() => {
+    settingsRef.current = { defaultSecondaryMapping, configs, configName, channelMappings };
+  }, [defaultSecondaryMapping, configs, configName, channelMappings]);
+
+  const loadInputs = useCallback(async (paths: string[]) => {
+    const knownPaths = filesRef.current.map((file) => file.path);
+    const merged = [...knownPaths, ...paths];
+
+    setIsBusy(true);
+    try {
+      const loaded = await invoke<FcsFileRecord[]>("load_fcs_inputs", { paths: merged });
+      
+      const { defaultSecondaryMapping, configs, configName, channelMappings } = settingsRef.current;
+      const activeCfg = configs.find(c => c.name === configName) ?? configs[0] ?? null;
+      
+      let processedFiles = loaded.map(file => ({
+        ...file,
+        channels: file.channels.map(channel => {
+          const normalizedDetector = normalizeDetector(channel.detector);
+          let newSecondaryName = channel.secondaryName;
+
+          // 1. Check custom mappings
+          const customMapping = channelMappings.find(
+            (m) => normalizeDetector(m.detector) === normalizedDetector || m.detector.trim().toLowerCase() === channel.detector.trim().toLowerCase()
+          );
+          if (customMapping && customMapping.label && !newSecondaryName) {
+            newSecondaryName = customMapping.label;
+          }
+
+          // 2. Fallback to cytometer config
+          if (defaultSecondaryMapping && !newSecondaryName && activeCfg) {
+            const detectorConfig = activeCfg.detectors.find(
+              (item) => normalizedDetector.includes(normalizeDetector(item.filter))
+            );
+            if (detectorConfig?.commonFluorophore) {
+              newSecondaryName = detectorConfig.commonFluorophore;
+            }
+          }
+
+          return { ...channel, secondaryName: newSecondaryName };
+        })
+      }));
+
+      setFiles(processedFiles);
+      if (processedFiles.length > 0) {
+        setSelectedPath((current) => current ?? processedFiles[0].path);
+      }
+      setStatus(`Loaded ${processedFiles.length} files. Editing remains non-destructive until export.`);
+    } catch (e) {
+      setStatus(`Failed to load files: ${e}`);
+    } finally {
+      setIsBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    async function setupDragDrop() {
+      unlisten = await getCurrentWebview().onDragDropEvent((event) => {
+        if (event.payload.type === 'over' || event.payload.type === 'enter') {
+          setIsDragging(true);
+        } else if (event.payload.type === 'leave') {
+          setIsDragging(false);
+        } else if (event.payload.type === 'drop') {
+          setIsDragging(false);
+          const droppedPaths = event.payload.paths.filter(p => p.toLowerCase().endsWith('.fcs'));
+          if (droppedPaths.length > 0) {
+            void loadInputs(droppedPaths);
+          }
+        }
+      });
+    }
+    void setupDragDrop();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [loadInputs]);
+
+  async function loadConfigs() {
+    const bootstrap = await invoke<ConfigBootstrap>("get_cytometer_configs");
+    setConfigs(bootstrap.configs);
+    setConfigName(bootstrap.defaultConfig);
+  }
+
+  async function addFiles() {
+    const selection = await open({
+      multiple: true,
+      directory: false,
+      filters: [{ name: "FCS", extensions: ["fcs"] }]
+    });
+
+    if (!selection) return;
+    const paths = Array.isArray(selection) ? selection : [selection];
+    await loadInputs(paths);
+  }
+
+  async function addFolder() {
+    const selection = await open({
+      multiple: false,
+      directory: true
+    });
+
+    if (!selection || Array.isArray(selection)) return;
+    await loadInputs([selection]);
+  }
+
+  async function chooseOutputDirectory() {
+    const selection = await open({
+      multiple: false,
+      directory: true
+    });
+
+    if (!selection || Array.isArray(selection)) return;
+    setOutputDirectory(selection);
+    setStatus(`Custom output directory set to ${selection}.`);
+  }
+
+  function updateFile(path: string, updater: (file: FcsFileRecord) => FcsFileRecord) {
+    setFiles((current) =>
+      current.map((file) => (file.path === path ? updater(file) : file))
+    );
+  }
+
+  function updateChannel(
+    filePath: string,
+    channelIndex: number,
+    field: "primaryName" | "secondaryName",
+    value: string
+  ) {
+    updateFile(filePath, (file) => ({
+      ...file,
+      channels: file.channels.map((channel) =>
+        channel.index === channelIndex ? { ...channel, [field]: value } : channel
+      )
+    }));
+  }
+
+  function findDetectorConfig(detector: string) {
+    if (!activeConfig) return null;
+    const normalizedDetector = normalizeDetector(detector);
+    return (
+      activeConfig.detectors.find((item) =>
+        normalizedDetector.includes(normalizeDetector(item.filter))
+      ) ?? null
+    );
+  }
+
+  function applyCommonFluorophores() {
+    if (!selectedFile) return;
+    updateFile(selectedFile.path, (file) => ({
+      ...file,
+      channels: file.channels.map((channel) => {
+        if (!channel.fluorescence) return channel;
+        const detectorConfig = findDetectorConfig(channel.detector);
+        return {
+          ...channel,
+          secondaryName: detectorConfig?.commonFluorophore ?? channel.secondaryName
+        };
+      })
+    }));
+    setStatus(`Applied common fluorophore defaults for ${activeConfig?.name ?? "the selected cytometer"}.`);
+  }
+
+  function applyMatchingFluorophoreList(rawValue: string) {
+    if (!selectedFile) return;
+
+    const tokens = rawValue
+      .split(/[\n,|;\t]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    if (tokens.length === 0) return;
+
+    updateFile(selectedFile.path, (file) => ({
+      ...file,
+      channels: file.channels.map((channel) => {
+        const detectorConfig = findDetectorConfig(channel.detector);
+        if (!detectorConfig) return channel;
+
+        const match = tokens.find((token) =>
+          detectorConfig.fluorophores.some(
+            (candidate) => normalizeToken(candidate) === normalizeToken(token)
+          )
+        );
+
+        return match ? { ...channel, secondaryName: match } : channel;
+      })
+    }));
+    setStatus(`Matched pasted fluorophores against ${activeConfig?.name ?? "the active cytometer"} detectors.`);
+  }
+
+  function autofillFileNames() {
+    const start = Number.parseInt(numberStart, 10);
+    const digits = Number.parseInt(numberDigits, 10);
+
+    if (useNumbering && (!Number.isFinite(start) || !Number.isFinite(digits) || digits < 1)) {
+      setStatus("Numbering needs valid integer start and digit values.");
+      return;
+    }
+
+    setFiles((current) =>
+      current.map((file, index) => {
+        const currentPrefix = incrementPrefix ? incrementString(prefix, index) : prefix;
+        const currentSuffix = incrementSuffix ? incrementString(suffix, index) : suffix;
+
+        const numbered = useNumbering
+          ? `${currentPrefix}${String(start + index).padStart(digits, "0")}${currentSuffix}`
+          : `${currentPrefix}${file.originalBaseName}${currentSuffix}`;
+
+        return {
+          ...file,
+          outputBaseName: numbered
+        };
+      })
+    );
+
+    setStatus("Updated filename previews.");
+  }
+
+  function resetFileNames() {
+    setFiles((current) =>
+      current.map((file) => ({
+        ...file,
+        outputBaseName: file.originalBaseName
+      }))
+    );
+    setStatus("Reset filename previews to the original base names.");
+  }
+
+  async function exportFiles() {
+    if (files.length === 0) return;
+
+    const templateFile = selectedFile ?? files[0];
+    const invalidName = files.find((file) => file.outputBaseName.trim().length === 0);
+    if (invalidName) {
+      setStatus(`Output name cannot be empty for ${invalidName.fileName}.`);
+      return;
+    }
+
+    setIsBusy(true);
+    const result = await invoke<ProcessResult>("process_fcs_files", {
+      request: {
+        files: files.map((file) => ({
+          path: file.path,
+          outputBaseName: file.outputBaseName.trim()
+        })),
+        channelTemplate: templateFile.channels.map((channel) => ({
+          originalPrimaryName: channel.originalPrimaryName,
+          primaryName: channel.primaryName.trim(),
+          secondaryName: channel.secondaryName
+        })),
+        keepOriginals,
+        outputDirectory
+      }
+    });
+
+    setLastExport(result.createdFiles);
+    const warningText = result.warnings.length > 0 ? ` ${result.warnings[0]}` : "";
+    setStatus(`Exported ${result.createdFiles.length} files.${warningText}`);
+    setIsBusy(false);
+  }
+
+  return (
+    <div className="app-shell">
+
+      <header className="hero">
+        <div className="hero-copy" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button className="btn ghost-button" onClick={() => setShowSettings(true)} title="Settings" style={{ padding: '6px' }}>
+            <Settings size={18} />
+          </button>
+          <h1>FCS Manager</h1>
+        </div>
+
+        <div className="hero-actions">
+          <button className="btn secondary-button" onClick={addFiles} disabled={isBusy}>
+            <FilePlus size={14} /> Add files
+          </button>
+          <button className="btn secondary-button" onClick={addFolder} disabled={isBusy}>
+            <FolderPlus size={14} /> Add folder
+          </button>
+          <button className="btn secondary-button" onClick={chooseOutputDirectory} disabled={isBusy}>
+            <FolderOutput size={14} /> Output folder
+          </button>
+          <button className="btn danger-button" onClick={() => setFiles([])} disabled={isBusy || files.length === 0}>
+            <Trash2 size={14} /> Clear all files
+          </button>
+          <button className="btn primary-button" onClick={exportFiles} disabled={isBusy || files.length === 0}>
+            <Download size={14} /> {isBusy ? "Working..." : "Export copies"}
+          </button>
+        </div>
+      </header>
+
+      <section className="status-bar">
+        <span className="status-text">{status}</span>
+      </section>
+
+      <main className="workspace">
+        <aside className={`file-rail panel ${isDragging ? 'is-dragging' : ''}`}>
+          <div className="panel-header">
+            <div>
+              <h2>Files</h2>
+            </div>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={keepOriginals}
+                onChange={(event) => setKeepOriginals(event.target.checked)}
+              />
+              <span>Keep originals</span>
+            </label>
+          </div>
+
+          <div className="rail-list">
+            {files.length === 0 ? (
+              <div className="empty-state">
+                <FileUp size={48} className="empty-state-icon" />
+                <h3>Welcome to FCS Manager</h3>
+                <p>Drag and drop your <code>.fcs</code> files here, or use the add buttons above to get started.</p>
+              </div>
+            ) : (
+              files.map((file) => (
+                <button
+                  key={file.path}
+                  className={`file-card ${selectedFile?.path === file.path ? "is-active" : ""}`}
+                  onClick={() => setSelectedPath(file.path)}
+                >
+                  <span className="file-title">{file.fileName}</span>
+                  <span className="file-meta">
+                    {file.parameterCount} params • {file.eventCount} events • {formatBytes(file.sizeBytes)}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </aside>
+
+        <section className="editor panel">
+          <div className="panel-header editor-header">
+            <div>
+              <h2>{selectedFile ? selectedFile.fileName : "No file selected"}</h2>
+            </div>
+
+            <div className="header-controls" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <label className="field-block compact" style={{ marginBottom: 0, flexDirection: 'row', alignItems: 'center' }}>
+                <span style={{ marginRight: '8px' }}>Cytometer config</span>
+                <select
+                  value={configName}
+                  onChange={(event) => setConfigName(event.target.value)}
+                  disabled={configs.length === 0}
+                  style={{ padding: '4px 8px' }}
+                >
+                  {configs.map((config) => (
+                    <option key={config.name} value={config.name}>
+                      {config.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="btn secondary-button" onClick={applyCommonFluorophores} disabled={!selectedFile}>
+                <Wand2 size={14} /> Common fluorophores
+              </button>
+            </div>
+          </div>
+
+          <div className="tab-row">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                className={`tab-button ${activeTab === tab.id ? "is-active" : ""}`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="panel-body">
+            {!selectedFile ? (
+              <div className="empty-canvas">
+                <p>Select a file to begin.</p>
+              </div>
+            ) : null}
+
+            {selectedFile && activeTab === "filenames" ? (
+              <div className="filename-layout">
+                <div className="filename-tools">
+                  <div className="field-block">
+                    <div className="field-header">
+                      <span>Prefix</span>
+                      <label className="toggle">
+                        <input type="checkbox" checked={incrementPrefix} onChange={e => setIncrementPrefix(e.target.checked)} />
+                        <span>Auto-inc</span>
+                      </label>
+                    </div>
+                    <input value={prefix} onChange={(event) => setPrefix(event.target.value)} />
+                  </div>
+                  <div className="field-block">
+                    <div className="field-header">
+                      <span>Suffix</span>
+                      <label className="toggle">
+                        <input type="checkbox" checked={incrementSuffix} onChange={e => setIncrementSuffix(e.target.checked)} />
+                        <span>Auto-inc</span>
+                      </label>
+                    </div>
+                    <input value={suffix} onChange={(event) => setSuffix(event.target.value)} />
+                  </div>
+                  <label className="toggle" style={{ marginBottom: '12px' }}>
+                    <input
+                      type="checkbox"
+                      checked={useNumbering}
+                      onChange={(event) => setUseNumbering(event.target.checked)}
+                    />
+                    <span>Autocomplete numbering</span>
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <label className="field-block compact" style={{ flex: 1 }}>
+                      <span>Start</span>
+                      <input value={numberStart} onChange={(event) => setNumberStart(event.target.value)} />
+                    </label>
+                    <label className="field-block compact" style={{ flex: 1 }}>
+                      <span>Digits</span>
+                      <input value={numberDigits} onChange={(event) => setNumberDigits(event.target.value)} />
+                    </label>
+                  </div>
+                  <div className="button-row" style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                    <button className="btn primary-button" onClick={autofillFileNames}>
+                      <Wand2 size={14} /> Preview Output Filenames
+                    </button>
+                    <button className="btn secondary-button" onClick={resetFileNames}>
+                      <RefreshCw size={14} /> Reset
+                    </button>
+                  </div>
+                </div>
+
+                <div className="filename-table" style={{ marginTop: '24px' }}>
+                  <div className="channel-table-header">
+                    <span>Current</span>
+                    <span>Planned output</span>
+                    <span>Destination</span>
+                  </div>
+                  <div className="channel-table">
+                    {files.map((file) => (
+                      <div className="channel-row" key={`${file.path}-filename`}>
+                        <div className="detector-cell">
+                          <strong>{file.originalBaseName}.fcs</strong>
+                        </div>
+                        <input
+                          value={file.outputBaseName}
+                          onChange={(event) =>
+                            updateFile(file.path, (current) => ({
+                              ...current,
+                              outputBaseName: event.target.value
+                            }))
+                          }
+                          placeholder="Output base name"
+                        />
+                        <div className="detector-cell">
+                          <strong>{outputDirectory ? "Custom Output" : "_formatted"}</strong>
+                          <small>Original file stays in place</small>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {selectedFile && activeTab === "primary" ? (
+              <div className="channel-table">
+                <div className="channel-table-header">
+                  <span>Index</span>
+                  <span>Original primary</span>
+                  <span>Primary name ($PnN)</span>
+                </div>
+                {selectedFile.channels.map((channel) => (
+                  <div className="channel-row" key={`${selectedFile.path}-primary-${channel.index}`}>
+                    <div className="index-pill" style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>{channel.index}</div>
+                    <div className="detector-cell">
+                      <strong>{channel.originalPrimaryName}</strong>
+                      <small>{channel.secondaryName || "No secondary name"}</small>
+                    </div>
+                    <input
+                      value={channel.primaryName}
+                      onChange={(event) =>
+                        updateChannel(selectedFile.path, channel.index, "primaryName", event.target.value)
+                      }
+                      placeholder="Primary channel name"
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {selectedFile && activeTab === "secondary" ? (
+              <div className="editor-surface">
+                <div className="surface-tools" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '16px' }}>
+                  <div className="field-block wide" style={{ marginBottom: 0 }}>
+                    <textarea
+                      placeholder="Paste fluorophores (e.g., BV421, FITC) to auto-match detectors..."
+                      onBlur={(event) => applyMatchingFluorophoreList(event.target.value)}
+                    />
+                  </div>
+                  <div style={{ alignSelf: 'flex-start', width: '100%' }}>
+                    <button
+                      className="btn prominent-save-button"
+                      onClick={() => {
+                        const newMappings = selectedFile.channels
+                          .filter(c => c.secondaryName)
+                          .map(c => ({
+                            id: crypto.randomUUID(),
+                            detector: c.detector,
+                            label: c.secondaryName
+                          }));
+                        
+                        if (newMappings.length > 0) {
+                          const currentMappings = [...channelMappings];
+                          for (const nm of newMappings) {
+                            const existingIdx = currentMappings.findIndex(cm => cm.detector.toLowerCase() === nm.detector.toLowerCase());
+                            if (existingIdx >= 0) {
+                              currentMappings[existingIdx].label = nm.label;
+                            } else {
+                              currentMappings.push(nm);
+                            }
+                          }
+                          setChannelMappings(currentMappings);
+                          setStatus("Saved current secondary channels as default mapping.");
+                        }
+                      }}
+                    >
+                      <Save size={16} /> Save current mapping as default
+                    </button>
+                  </div>
+                </div>
+
+                <div className="channel-table">
+                  <div className="channel-table-header">
+                    <span>Detector</span>
+                    <span>Suggested</span>
+                    <span>Secondary name ($PnS)</span>
+                  </div>
+                  {selectedFile.channels.map((channel) => {
+                    const detectorConfig = findDetectorConfig(channel.detector);
+                    return (
+                      <div className="channel-row" key={`${selectedFile.path}-secondary-${channel.index}`}>
+                        <div className="detector-cell">
+                          <strong>{channel.detector}</strong>
+                          <small>{channel.originalPrimaryName}</small>
+                        </div>
+                        <div className="suggestion-cell" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {detectorConfig?.commonFluorophore ? (
+                            <>
+                              <span className="tag suggestion-text">
+                                {detectorConfig.commonFluorophore}
+                              </span>
+                              <button
+                                className="btn secondary-button"
+                                onClick={() => {
+                                  updateFile(selectedFile.path, (file) => ({
+                                    ...file,
+                                    channels: file.channels.map((c) => {
+                                      if (c.detector === channel.detector) {
+                                        return { ...c, secondaryName: detectorConfig.commonFluorophore! };
+                                      }
+                                      return c;
+                                    })
+                                  }));
+                                }}
+                                style={{ padding: '2px 6px', fontSize: '10px', height: 'auto', minHeight: 'auto' }}
+                              >
+                                <Check size={10} /> Apply
+                              </button>
+                            </>
+                          ) : (
+                            <span className="tag">No match</span>
+                          )}
+                        </div>
+                        <div className="input-with-action">
+                          <input
+                            value={channel.secondaryName}
+                            onChange={(event) =>
+                              updateChannel(selectedFile.path, channel.index, "secondaryName", event.target.value)
+                            }
+                          />
+                          <button 
+                            className="btn primary-button action-btn" 
+                            title="Apply to all files"
+                            onClick={() => {
+                              setFiles(current => current.map(f => ({
+                                ...f,
+                                channels: f.channels.map(c => 
+                                  c.detector === channel.detector ? { ...c, secondaryName: channel.secondaryName } : c
+                                )
+                              })));
+                              setStatus(`Applied "${channel.secondaryName}" to detector ${channel.detector} across all files.`);
+                            }}
+                          >
+                            <RefreshCw size={12} /> Apply All
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {selectedFile && activeTab === "parameters" ? (
+              <div className="metadata-table">
+                <div className="channel-table-header" style={{ gridTemplateColumns: '200px 1fr', padding: '10px 12px' }}>
+                  <span>Keyword</span>
+                  <span>Value</span>
+                </div>
+                {selectedFile.parameters.map((entry) => (
+                  <div className="metadata-row" key={`${selectedFile.path}-${entry.key}`}>
+                    <code>{entry.key}</code>
+                    <span style={{ wordBreak: 'break-all' }}>{entry.value}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+      </main>
+
+      {showSettings && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="panel-header">
+              <h2><Settings size={18} /> Settings</h2>
+              <button className="btn secondary-button" onClick={() => setShowSettings(false)}>Close</button>
+            </div>
+            <div className="panel-body settings-body">
+              <label className="field-block">
+                <span>Theme</span>
+                <select value={theme} onChange={(e) => setTheme(e.target.value as "dark" | "light")}>
+                  <option value="dark">Dark</option>
+                  <option value="light">Light</option>
+                </select>
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={defaultKeepOriginals}
+                  onChange={(e) => {
+                    setDefaultKeepOriginals(e.target.checked);
+                    setKeepOriginals(e.target.checked);
+                  }}
+                />
+                <span>Keep original files by default</span>
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={defaultSecondaryMapping}
+                  onChange={(e) => setDefaultSecondaryMapping(e.target.checked)}
+                />
+                <span>Map secondary channels by default</span>
+              </label>
+
+              <hr style={{ margin: '8px 0', border: 'none', borderTop: '1px solid var(--panel-line)' }} />
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <h3 style={{ margin: '0 0 4px 0', fontSize: '14px', color: 'var(--text)' }}>Default Channel Mapping</h3>
+                  <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
+                    Map detector names to default secondary labels (e.g., FL1-H &rarr; FITC).
+                  </p>
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {channelMappings.map((mapping, idx) => (
+                    <div key={mapping.id} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <input 
+                        style={{ flex: 1, margin: 0 }}
+                        placeholder="Detector (e.g. FL1-H)" 
+                        value={mapping.detector} 
+                        onChange={e => {
+                          const newMappings = [...channelMappings];
+                          newMappings[idx].detector = e.target.value;
+                          setChannelMappings(newMappings);
+                        }} 
+                      />
+                      <input 
+                        style={{ flex: 1, margin: 0 }}
+                        placeholder="Label (e.g. FITC)" 
+                        value={mapping.label} 
+                        onChange={e => {
+                          const newMappings = [...channelMappings];
+                          newMappings[idx].label = e.target.value;
+                          setChannelMappings(newMappings);
+                        }} 
+                      />
+                      <button 
+                        className="btn danger-button" 
+                        onClick={() => setChannelMappings(channelMappings.filter(m => m.id !== mapping.id))}
+                        style={{ padding: '6px 10px', height: '100%', margin: 0 }}
+                      >
+                        <Trash2 size={14} /> Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="button-group">
+                  <button 
+                    className="btn secondary-button" 
+                    onClick={() => setChannelMappings([...channelMappings, { id: crypto.randomUUID(), detector: '', label: '' }])}
+                  >
+                    <PlusCircle size={14} /> Add Mapping
+                  </button>
+                  <button
+                    className="btn secondary-button"
+                    onClick={() => {
+                      const data = prompt("Paste TSV or CSV data here (Column A = Detector, Column B = Label)");
+                      if (data) {
+                        const rows = data.split('\n').map(row => row.trim()).filter(Boolean);
+                        const newMappings: ChannelMapping[] = [];
+                        for (const row of rows) {
+                          const cols = row.split(/[\t,]/).map(c => c.trim());
+                          if (cols.length >= 2) {
+                            newMappings.push({ id: crypto.randomUUID(), detector: cols[0], label: cols[1] });
+                          }
+                        }
+                        if (newMappings.length > 0) {
+                          setChannelMappings([...channelMappings, ...newMappings]);
+                        }
+                      }
+                    }}
+                  >
+                    <FileSpreadsheet size={14} /> Paste TSV/CSV
+                  </button>
+                  <button
+                    className="btn secondary-button"
+                    onClick={() => {
+                      const json = JSON.stringify(channelMappings, null, 2);
+                      const blob = new Blob([json], { type: "application/json" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = "channel_mappings.json";
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                  >
+                    <Code size={14} /> Export JSON
+                  </button>
+                  <label className="btn secondary-button" style={{ cursor: 'pointer', margin: 0 }}>
+                    <Code size={14} /> Import JSON
+                    <input 
+                      type="file" 
+                      accept=".json" 
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            try {
+                              const json = JSON.parse(event.target?.result as string);
+                              if (Array.isArray(json)) {
+                                const validMappings = json.filter(m => m.id && m.detector !== undefined && m.label !== undefined);
+                                setChannelMappings(validMappings);
+                              }
+                            } catch (err) {
+                              alert("Failed to parse JSON file.");
+                            }
+                          };
+                          reader.readAsText(file);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

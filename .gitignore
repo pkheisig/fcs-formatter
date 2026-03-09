@@ -8,6 +8,8 @@ __pycache__/
 build/
 dist/
 *.spec
+node_modules/
+src-tauri/target/
 
 # IDEs
 .idea/
