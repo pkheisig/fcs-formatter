@@ -98,7 +98,7 @@ export default function App() {
   const [outputDirectory, setOutputDirectory] = useState<string | null>(null);
   
   const [showSettings, setShowSettings] = useState(false);
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<"dark" | "light">("light");
   const [defaultKeepOriginals, setDefaultKeepOriginals] = useState(true);
   const [defaultSecondaryMapping, setDefaultSecondaryMapping] = useState(true);
 
