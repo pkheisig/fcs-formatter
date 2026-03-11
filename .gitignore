@@ -19,3 +19,8 @@ src-tauri/target/
 # Temporary files
 *.log
 _backup/
+
+.env
+.env.local
+.zshrc
+fcs
