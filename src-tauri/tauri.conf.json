@@ -28,9 +28,25 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller",
+        "silent": true
+      },
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser",
+        "languages": [
+          "English"
+        ],
+        "displayLanguageSelector": false,
+        "startMenuFolder": "FCS Manager"
+      }
+    },
     "icon": [
       "icons/app_icon.png",
-      "icons/AppIcon.icns"
+      "icons/AppIcon.icns",
+      "icons/icon.ico"
     ]
   }
 }
