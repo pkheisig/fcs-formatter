@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:windows:local": "tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc",
+    "build:windows:ci": "tauri build --target x86_64-pc-windows-msvc --bundles nsis",
     "preview": "vite preview",
     "tauri": "tauri"
   },

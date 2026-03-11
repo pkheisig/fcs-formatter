@@ -119,6 +119,34 @@ Create a desktop bundle:
 npm run tauri -- build --debug
 ```
 
+Create a self-contained Windows installer (`.exe`) on macOS:
+
+```bash
+brew install llvm nsis
+rustup target add x86_64-pc-windows-msvc
+cargo install cargo-xwin
+npm run build:windows:local
+```
+
+The generated installer is written to:
+
+```text
+src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/
+```
+
+This installer uses Tauri's `offlineInstaller` WebView2 mode, so the `.exe` includes the browser runtime and does not require the end user to install any extra dependency manually.
+
+## Windows Release Artifact
+
+The repo includes a GitHub Actions workflow at `.github/workflows/windows-installer.yml`.
+
+- Manual run: Actions -> `Build Windows Installer`
+- Tagged release: push a tag like `v0.1.0`
+- Artifact output: uploaded `.exe`
+- Release output on tags: attached to the GitHub Release
+
+Note that the self-contained installer is typically larger than 100 MB because it embeds the offline WebView2 runtime. That makes GitHub Releases the correct distribution path instead of committing the binary directly into git history.
+
 ## Tests
 
 Backend tests use the sample files in [`fcs`](./fcs):
