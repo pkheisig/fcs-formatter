@@ -136,6 +136,33 @@ src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/
 
 This installer uses Tauri's `offlineInstaller` WebView2 mode, so the `.exe` includes the browser runtime and does not require the end user to install any extra dependency manually.
 
+## Portable Windows Build
+
+If you want a no-install version for a colleague, build the Windows executable and then package the portable zip:
+
+```bash
+npm run build:windows:local
+npm run package:windows:portable
+```
+
+The portable zip is written to:
+
+```text
+dist-portable/FCS Manager_0.1.0_x64-portable.zip
+```
+
+Inside is:
+
+- `FCS Manager.exe`
+- `README.txt`
+
+This is the cheapest and simplest distribution path. Your colleague can extract the zip and run the app directly without using an installer.
+
+Important limitations:
+
+- Windows may still show a SmartScreen warning because the app is unsigned
+- The portable `.exe` depends on Microsoft WebView2 already being available on the target PC, which is true on most Windows 10/11 machines but not guaranteed on older or locked-down systems
+
 ## Windows Release Artifact
 
 The repo includes a GitHub Actions workflow at `.github/workflows/windows-installer.yml`.
