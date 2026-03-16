@@ -1,7 +1,7 @@
 # FCS Manager
 
 FCS Manager is a browser-based tool for cleaning up FCS metadata without modifying source files.  
-Load one file or a full folder, set channel names, preview output filenames, and export a ZIP of updated `.fcs` copies.
+Load one file or a full folder, set channel names, preview output filenames, and save updated `.fcs` copies directly into a folder (no ZIP).
 
 ## Current Naming Model
 
@@ -47,7 +47,9 @@ Fortessa 3L detector-to-default fluorophore mapping is tuned, including:
 4. Fill `Secondary Names` (auto-propagates by detector across loaded files).
 5. Click `Save assignments to config` if you want to persist these mappings.
 6. Preview filenames in `Filenames`.
-7. Export ZIP.
+7. Click `Save`, choose a target folder, and write plain `.fcs` files.
+
+`Keep original files` is enabled by default. With it on, existing files in the target folder are not overwritten (a suffixed name is used instead).
 
 ## Settings: Mapping Library
 

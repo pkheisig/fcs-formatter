@@ -83,6 +83,19 @@ button {
 .hero-actions {
   display: flex;
   gap: 8px;
+  align-items: flex-start;
+}
+
+.save-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.save-toggle {
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 /* Button Styles */

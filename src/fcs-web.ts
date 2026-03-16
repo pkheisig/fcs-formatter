@@ -75,6 +75,25 @@ export type ExportBundle = {
   warnings: string[];
 };
 
+export type ExportFile = {
+  fileName: string;
+  bytes: Uint8Array;
+};
+
+export type ExportFilesBundle = {
+  files: ExportFile[];
+  createdFiles: string[];
+  warnings: string[];
+};
+
+export type FcsInputFile = {
+  name: string;
+  size: number;
+  lastModified: number;
+  webkitRelativePath?: string;
+  arrayBuffer: () => Promise<ArrayBuffer>;
+};
+
 const DEFAULT_CONFIG = "BD Fortessa 3L";
 
 function detector(filter: string, fluorophores: string[]): DetectorConfig {
@@ -229,7 +248,7 @@ function isFluorescenceChannel(channelName: string): boolean {
   return !upper.includes("FSC") && !upper.includes("SSC") && !upper.includes("TIME");
 }
 
-function fileIdentity(file: File): string {
+function fileIdentity(file: FcsInputFile): string {
   const relative = file.webkitRelativePath || file.name;
   return `${relative}::${file.lastModified}::${file.size}`;
 }
@@ -391,7 +410,7 @@ export function getCytometerConfigs(): ConfigBootstrap {
 }
 
 export async function parseFcsInputFiles(
-  inputFiles: File[],
+  inputFiles: FcsInputFile[],
 ): Promise<{ records: FcsFileRecord[]; failed: string[] }> {
   const records: FcsFileRecord[] = [];
   const failed: string[] = [];
@@ -479,45 +498,62 @@ export async function parseFcsInputFiles(
   return { records, failed };
 }
 
-export async function createExportZip(
+function reserveUniqueName(baseName: string, usedNames: Set<string>): string {
+  if (!usedNames.has(baseName)) {
+    usedNames.add(baseName);
+    return baseName;
+  }
+
+  const dotIndex = baseName.toLowerCase().endsWith(".fcs") ? baseName.length - 4 : -1;
+  const root = dotIndex >= 0 ? baseName.slice(0, dotIndex) : baseName;
+  const extension = dotIndex >= 0 ? baseName.slice(dotIndex) : "";
+
+  for (let suffix = 2; suffix < 10_000; suffix += 1) {
+    const candidate = `${root}_${String(suffix).padStart(3, "0")}${extension}`;
+    if (!usedNames.has(candidate)) {
+      usedNames.add(candidate);
+      return candidate;
+    }
+  }
+
+  throw new Error(`Unable to create unique output file name for ${baseName}`);
+}
+
+export function createExportFiles(
   files: FcsFileRecord[],
   channelTemplate: ChannelEdit[],
-): Promise<ExportBundle> {
-  const zip = new JSZip();
+): ExportFilesBundle {
+  const outputFiles: ExportFile[] = [];
   const createdFiles: string[] = [];
   const warnings: string[] = [];
   const usedNames = new Set<string>();
 
-  function reserveUniqueName(baseName: string): string {
-    if (!usedNames.has(baseName)) {
-      usedNames.add(baseName);
-      return baseName;
-    }
-
-    const dotIndex = baseName.toLowerCase().endsWith(".fcs") ? baseName.length - 4 : -1;
-    const root = dotIndex >= 0 ? baseName.slice(0, dotIndex) : baseName;
-    const extension = dotIndex >= 0 ? baseName.slice(dotIndex) : "";
-
-    for (let suffix = 2; suffix < 10_000; suffix += 1) {
-      const candidate = `${root}_${String(suffix).padStart(3, "0")}${extension}`;
-      if (!usedNames.has(candidate)) {
-        usedNames.add(candidate);
-        return candidate;
-      }
-    }
-
-    throw new Error(`Unable to create unique output file name for ${baseName}`);
-  }
-
   for (const file of files) {
     const requestedName = `${file.outputBaseName.trim()}.fcs`;
-    const safeName = reserveUniqueName(requestedName);
+    const safeName = reserveUniqueName(requestedName, usedNames);
     if (safeName !== requestedName) {
       warnings.push(`${requestedName} renamed to ${safeName} to avoid a duplicate file name.`);
     }
     const bytes = buildEditedBytes(file, channelTemplate, safeName);
-    zip.file(safeName, bytes);
+    outputFiles.push({ fileName: safeName, bytes });
     createdFiles.push(safeName);
+  }
+
+  return {
+    files: outputFiles,
+    createdFiles,
+    warnings,
+  };
+}
+
+export async function createExportZip(
+  files: FcsFileRecord[],
+  channelTemplate: ChannelEdit[],
+): Promise<ExportBundle> {
+  const prepared = createExportFiles(files, channelTemplate);
+  const zip = new JSZip();
+  for (const file of prepared.files) {
+    zip.file(file.fileName, file.bytes);
   }
 
   const zipBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
@@ -525,8 +561,8 @@ export async function createExportZip(
   return {
     zipBlob,
     zipName: `fcs-manager-export-${stamp}.zip`,
-    createdFiles,
-    warnings,
+    createdFiles: prepared.createdFiles,
+    warnings: prepared.warnings,
   };
 }
 

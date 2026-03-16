@@ -1,13 +1,13 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { Settings, FilePlus, FolderPlus, Trash2, Download, RefreshCw, Wand2, Save, FileUp, PlusCircle, FileSpreadsheet, Code } from "lucide-react";
+import { Settings, FilePlus, FolderPlus, Trash2, RefreshCw, Wand2, Save, FileUp, PlusCircle, FileSpreadsheet, Code } from "lucide-react";
 import {
-  createExportZip,
-  downloadBlob,
+  createExportFiles,
   getCytometerConfigs,
   parseFcsInputFiles,
   type ChannelEdit,
   type ConfigBootstrap,
   type CytometerConfig,
+  type FcsInputFile,
   type FcsFileRecord,
 } from "./fcs-web";
 
@@ -52,6 +52,90 @@ function incrementString(str: string, index: number) {
   });
 }
 
+type DirectoryHandleLike = {
+  kind?: "directory";
+  name?: string;
+  getFileHandle: (name: string, options?: { create?: boolean }) => Promise<{
+    createWritable: () => Promise<{
+      write: (data: Uint8Array) => Promise<void>;
+      close: () => Promise<void>;
+    }>;
+  }>;
+  entries?: () => AsyncIterableIterator<[string, DirectoryEntryHandleLike]>;
+};
+
+type FileHandleLike = {
+  kind: "file";
+  name: string;
+  getFile: () => Promise<File>;
+};
+
+type DirectoryEntryHandleLike = FileHandleLike | DirectoryHandleLike;
+
+async function directoryHasFile(directoryHandle: DirectoryHandleLike, fileName: string): Promise<boolean> {
+  try {
+    await directoryHandle.getFileHandle(fileName, { create: false });
+    return true;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "NotFoundError") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function reserveOutputNameInDirectory(
+  directoryHandle: DirectoryHandleLike,
+  requestedName: string,
+): Promise<string> {
+  if (!(await directoryHasFile(directoryHandle, requestedName))) {
+    return requestedName;
+  }
+
+  const dotIndex = requestedName.toLowerCase().endsWith(".fcs") ? requestedName.length - 4 : -1;
+  const root = dotIndex >= 0 ? requestedName.slice(0, dotIndex) : requestedName;
+  const extension = dotIndex >= 0 ? requestedName.slice(dotIndex) : "";
+
+  for (let suffix = 2; suffix < 10_000; suffix += 1) {
+    const candidate = `${root}_${String(suffix).padStart(3, "0")}${extension}`;
+    if (!(await directoryHasFile(directoryHandle, candidate))) {
+      return candidate;
+    }
+  }
+
+  throw new Error(`Unable to reserve a unique output file name for ${requestedName}`);
+}
+
+async function collectFcsFilesFromDirectory(
+  directoryHandle: DirectoryHandleLike,
+  prefix = "",
+): Promise<FcsInputFile[]> {
+  if (!directoryHandle.entries) {
+    throw new Error("Directory traversal is not supported in this browser.");
+  }
+
+  const collected: FcsInputFile[] = [];
+  for await (const [entryName, entry] of directoryHandle.entries()) {
+    if (entry.kind === "file") {
+      const file = await entry.getFile();
+      if (!file.name.toLowerCase().endsWith(".fcs")) continue;
+      collected.push({
+        name: file.name,
+        size: file.size,
+        lastModified: file.lastModified,
+        webkitRelativePath: `${prefix}${entryName}`,
+        arrayBuffer: () => file.arrayBuffer(),
+      });
+      continue;
+    }
+
+    const nested = await collectFcsFilesFromDirectory(entry, `${prefix}${entryName}/`);
+    collected.push(...nested);
+  }
+
+  return collected;
+}
+
 export default function App() {
   const [configs, setConfigs] = useState<CytometerConfig[]>([]);
   const [files, setFiles] = useState<FcsFileRecord[]>([]);
@@ -92,6 +176,8 @@ export default function App() {
   const [numberStart, setNumberStart] = useState("1");
   const [numberDigits, setNumberDigits] = useState("3");
   const [isBusy, setIsBusy] = useState(false);
+  const [keepOriginalFiles, setKeepOriginalFiles] = useState(true);
+  const [lastImportDirectoryHandle, setLastImportDirectoryHandle] = useState<DirectoryHandleLike | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [status, setStatus] = useState("Load `.fcs` files to begin.");
   const [lastExport, setLastExport] = useState<string[]>([]);
@@ -178,7 +264,7 @@ export default function App() {
     }));
   }, []);
 
-  const loadInputs = useCallback(async (inputFiles: File[]) => {
+  const loadInputs = useCallback(async (inputFiles: FcsInputFile[]) => {
     setIsBusy(true);
     try {
       const { records, failed } = await parseFcsInputFiles(inputFiles);
@@ -221,6 +307,7 @@ export default function App() {
 
   function handleFileSelection(fileList: FileList | null) {
     if (!fileList) return;
+    setLastImportDirectoryHandle(null);
     void loadInputs(Array.from(fileList));
   }
 
@@ -228,14 +315,44 @@ export default function App() {
     filesPickerRef.current?.click();
   }
 
-  function addFolder() {
-    folderPickerRef.current?.click();
+  async function addFolder() {
+    const directoryPicker = (
+      window as Window & {
+        showDirectoryPicker?: (options?: {
+          id?: string;
+          mode?: "read" | "readwrite";
+          startIn?: unknown;
+        }) => Promise<DirectoryHandleLike>;
+      }
+    ).showDirectoryPicker;
+    if (!directoryPicker) {
+      folderPickerRef.current?.click();
+      return;
+    }
+
+    try {
+      const directoryHandle = await directoryPicker({ id: "fcs-manager-import", mode: "read" });
+      const folderFiles = await collectFcsFilesFromDirectory(directoryHandle);
+      if (folderFiles.length === 0) {
+        setStatus("No .fcs files found in selected folder.");
+        return;
+      }
+      setLastImportDirectoryHandle(directoryHandle);
+      await loadInputs(folderFiles);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setStatus("Folder selection cancelled.");
+        return;
+      }
+      setStatus(`Failed to load folder: ${error}`);
+    }
   }
 
   function onDropFiles(event: React.DragEvent<HTMLElement>) {
     event.preventDefault();
     setIsDragging(false);
     if (event.dataTransfer.files.length > 0) {
+      setLastImportDirectoryHandle(null);
       void loadInputs(Array.from(event.dataTransfer.files));
     }
   }
@@ -394,6 +511,20 @@ export default function App() {
   async function exportFiles() {
     if (files.length === 0) return;
 
+    const directoryPicker = (
+      window as Window & {
+        showDirectoryPicker?: (options?: {
+          id?: string;
+          mode?: "read" | "readwrite";
+          startIn?: unknown;
+        }) => Promise<DirectoryHandleLike>;
+      }
+    ).showDirectoryPicker;
+    if (!directoryPicker) {
+      setStatus("Direct folder save requires a browser with File System Access support (Chrome/Edge).");
+      return;
+    }
+
     const templateFile = selectedFile ?? files[0];
     const invalidName = files.find((file) => file.outputBaseName.trim().length === 0);
     if (invalidName) {
@@ -408,12 +539,53 @@ export default function App() {
         primaryName: channel.primaryName.trim(),
         secondaryName: channel.secondaryName,
       }));
-      const result = await createExportZip(files, channelTemplate);
-      downloadBlob(result.zipBlob, result.zipName);
-      setLastExport(result.createdFiles);
-      const warningText = result.warnings.length > 0 ? ` ${result.warnings[0]}` : "";
-      setStatus(`Prepared ${result.createdFiles.length} files. Downloaded ${result.zipName}.${warningText}`);
+      const prepared = createExportFiles(files, channelTemplate);
+      let directoryHandle: DirectoryHandleLike;
+      if (lastImportDirectoryHandle) {
+        try {
+          directoryHandle = await directoryPicker({
+            id: "fcs-manager-save",
+            mode: "readwrite",
+            startIn: lastImportDirectoryHandle as unknown,
+          });
+        } catch (error) {
+          if (error instanceof DOMException && error.name !== "AbortError") {
+            directoryHandle = await directoryPicker({ id: "fcs-manager-save", mode: "readwrite" });
+          } else {
+            throw error;
+          }
+        }
+      } else {
+        directoryHandle = await directoryPicker({ id: "fcs-manager-save", mode: "readwrite" });
+      }
+      const savedFiles: string[] = [];
+      const warnings = [...prepared.warnings];
+
+      for (const file of prepared.files) {
+        let targetName = file.fileName;
+        if (keepOriginalFiles) {
+          const safeName = await reserveOutputNameInDirectory(directoryHandle, targetName);
+          if (safeName !== targetName) {
+            warnings.push(`${targetName} already exists and was saved as ${safeName}.`);
+            targetName = safeName;
+          }
+        }
+
+        const outputHandle = await directoryHandle.getFileHandle(targetName, { create: true });
+        const writable = await outputHandle.createWritable();
+        await writable.write(file.bytes);
+        await writable.close();
+        savedFiles.push(targetName);
+      }
+
+      setLastExport(savedFiles);
+      const warningText = warnings.length > 0 ? ` ${warnings[0]}` : "";
+      setStatus(`Saved ${savedFiles.length} files to the selected folder.${warningText}`);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setStatus("Save cancelled.");
+        return;
+      }
       setStatus(`Export failed: ${error}`);
     } finally {
       setIsBusy(false);
@@ -463,9 +635,20 @@ export default function App() {
           <button className="btn danger-button" onClick={() => setFiles([])} disabled={isBusy || files.length === 0}>
             <Trash2 size={14} /> Clear all files
           </button>
-          <button className="btn primary-button" onClick={exportFiles} disabled={isBusy || files.length === 0}>
-            <Download size={14} /> {isBusy ? "Working..." : "Download zip"}
-          </button>
+          <div className="save-actions">
+            <button className="btn primary-button" onClick={exportFiles} disabled={isBusy || files.length === 0}>
+              <Save size={14} /> {isBusy ? "Saving..." : "Save"}
+            </button>
+            <label className="toggle save-toggle">
+              <input
+                type="checkbox"
+                checked={keepOriginalFiles}
+                onChange={(event) => setKeepOriginalFiles(event.target.checked)}
+                disabled={isBusy || files.length === 0}
+              />
+              <span>Keep original files</span>
+            </label>
+          </div>
         </div>
       </header>
 
@@ -648,8 +831,8 @@ export default function App() {
                           placeholder="Output base name"
                         />
                         <div className="detector-cell">
-                          <strong>Download ZIP</strong>
-                          <small>Original files on disk are unchanged</small>
+                          <strong>Save to selected folder</strong>
+                          <small>Writes plain .fcs files (no zip)</small>
                         </div>
                       </div>
                     ))}
