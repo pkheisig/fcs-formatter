@@ -21,9 +21,9 @@ type ChannelMapping = {
 };
 
 const tabs: { id: WorkspaceTab; label: string; description: string }[] = [
-  { id: "filenames", label: "Filenames", description: "Autofill prefixes, suffixes, and numbered outputs." },
   { id: "primary", label: "Primary Names", description: "Use fluorophore names in $PnN." },
   { id: "secondary", label: "Secondary Names", description: "Use marker names in $PnS." },
+  { id: "filenames", label: "Filenames", description: "Autofill prefixes, suffixes, and numbered outputs." },
   { id: "parameters", label: "All Parameters", description: "Inspect all TEXT-segment metadata on the selected file." }
 ];
 
