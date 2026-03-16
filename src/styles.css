@@ -158,20 +158,6 @@ button {
   cursor: default;
 }
 
-/* Prominent mapping save button */
-.prominent-save-button {
-  background: rgba(255, 122, 89, 0.15);
-  color: var(--accent);
-  border: 1px dashed var(--accent);
-  padding: 10px 16px;
-  font-size: 14px;
-  width: 100%;
-}
-
-.prominent-save-button:hover {
-  background: rgba(255, 122, 89, 0.25);
-}
-
 .status-bar {
   padding: 8px 12px;
   background: var(--panel);
@@ -278,6 +264,7 @@ button {
 
 .tab-row {
   display: flex;
+  align-items: center;
   gap: 4px;
   padding: 8px 16px 0;
   border-bottom: 1px solid var(--panel-line);
@@ -305,6 +292,11 @@ button {
   color: var(--accent);
   background: var(--panel-line);
   border-bottom-color: var(--accent);
+}
+
+.tab-save-action {
+  margin-left: auto;
+  margin-bottom: 8px;
 }
 
 .field-block {
@@ -440,35 +432,6 @@ button {
   background: var(--panel-line);
   color: var(--text);
   border-color: var(--accent);
-}
-
-.input-with-action {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-.input-with-action input {
-  flex: 1;
-  min-width: 0;
-}
-
-.action-btn {
-  background: var(--panel-line);
-  color: var(--text);
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 6px 8px;
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.1s ease;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.action-btn:hover {
-  opacity: 0.8;
-  border-color: var(--muted);
 }
 
 .metadata-table {

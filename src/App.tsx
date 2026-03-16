@@ -260,6 +260,61 @@ export default function App() {
     }));
   }
 
+  function applySecondaryNameToAll(detector: string, value: string) {
+    const normalizedDetector = normalizeDetector(detector);
+    setFiles((current) =>
+      current.map((file) => ({
+        ...file,
+        channels: file.channels.map((channel) =>
+          normalizeDetector(channel.detector) === normalizedDetector
+            ? { ...channel, secondaryName: value }
+            : channel
+        ),
+      }))
+    );
+  }
+
+  function saveAssignmentsToConfig() {
+    if (!selectedFile) return;
+
+    const assignments = selectedFile.channels
+      .filter((channel) => channel.primaryName.trim() || channel.secondaryName.trim())
+      .map((channel) => ({
+        detector: channel.detector,
+        primaryName: channel.primaryName,
+        secondaryName: channel.secondaryName,
+      }));
+
+    if (assignments.length === 0) {
+      setStatus("No primary/secondary names to save for this file.");
+      return;
+    }
+
+    setChannelMappings((current) => {
+      const next = [...current];
+      for (const assignment of assignments) {
+        const normalizedDetector = normalizeDetector(assignment.detector);
+        const existingIdx = next.findIndex(
+          (mapping) => normalizeDetector(mapping.detector) === normalizedDetector,
+        );
+        if (existingIdx >= 0) {
+          next[existingIdx].primaryName = assignment.primaryName;
+          next[existingIdx].secondaryName = assignment.secondaryName;
+        } else {
+          next.push({
+            id: crypto.randomUUID(),
+            detector: assignment.detector,
+            primaryName: assignment.primaryName,
+            secondaryName: assignment.secondaryName,
+          });
+        }
+      }
+      return next;
+    });
+
+    setStatus("Saved assignments to config for the active detector mappings.");
+  }
+
   function findDetectorConfig(detector: string) {
     if (!activeConfig) return null;
     const normalizedDetector = normalizeDetector(detector);
@@ -503,6 +558,13 @@ export default function App() {
                 <span>{tab.label}</span>
               </button>
             ))}
+            <button
+              className="btn secondary-button tab-save-action"
+              onClick={saveAssignmentsToConfig}
+              disabled={!selectedFile}
+            >
+              <Save size={14} /> Save assignments to config
+            </button>
           </div>
 
           <div className="panel-body">
@@ -647,41 +709,6 @@ export default function App() {
 
             {selectedFile && activeTab === "secondary" ? (
               <div className="editor-surface">
-                <div className="surface-tools" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '16px' }}>
-                  <div style={{ alignSelf: 'flex-start', width: '100%' }}>
-                    <button
-                      className="btn prominent-save-button"
-                      onClick={() => {
-                        const newMappings = selectedFile.channels
-                          .filter((channel) => channel.primaryName.trim() || channel.secondaryName.trim())
-                          .map(c => ({
-                            id: crypto.randomUUID(),
-                            detector: c.detector,
-                            primaryName: c.primaryName,
-                            secondaryName: c.secondaryName
-                          }));
-                        
-                        if (newMappings.length > 0) {
-                          const currentMappings = [...channelMappings];
-                          for (const nm of newMappings) {
-                            const existingIdx = currentMappings.findIndex(cm => cm.detector.toLowerCase() === nm.detector.toLowerCase());
-                            if (existingIdx >= 0) {
-                              currentMappings[existingIdx].primaryName = nm.primaryName;
-                              currentMappings[existingIdx].secondaryName = nm.secondaryName;
-                            } else {
-                              currentMappings.push(nm);
-                            }
-                          }
-                          setChannelMappings(currentMappings);
-                          setStatus("Saved primary/secondary name defaults for the active detector mappings.");
-                        }
-                      }}
-                    >
-                      <Save size={16} /> Save current names as defaults
-                    </button>
-                  </div>
-                </div>
-
                 <div className="channel-table">
                   <div className="channel-table-header" style={{ gridTemplateColumns: '1fr 1.4fr' }}>
                     <span>Detector</span>
@@ -693,29 +720,10 @@ export default function App() {
                           <strong>{channel.primaryName || channel.originalPrimaryName}</strong>
                           <small>{channel.detector}</small>
                         </div>
-                        <div className="input-with-action">
-                          <input
-                            value={channel.secondaryName}
-                            onChange={(event) =>
-                              updateChannel(selectedFile.path, channel.index, "secondaryName", event.target.value)
-                            }
-                          />
-                          <button 
-                            className="btn primary-button action-btn" 
-                            title="Apply to all files"
-                            onClick={() => {
-                              setFiles(current => current.map(f => ({
-                                ...f,
-                                channels: f.channels.map(c => 
-                                  c.detector === channel.detector ? { ...c, secondaryName: channel.secondaryName } : c
-                                )
-                              })));
-                              setStatus(`Applied "${channel.secondaryName}" to detector ${channel.detector} across all files.`);
-                            }}
-                          >
-                            <RefreshCw size={12} /> Apply All
-                          </button>
-                        </div>
+                        <input
+                          value={channel.secondaryName}
+                          onChange={(event) => applySecondaryNameToAll(channel.detector, event.target.value)}
+                        />
                       </div>
                   ))}
                 </div>
