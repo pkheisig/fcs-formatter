@@ -27,12 +27,16 @@ const outputRoot = join(repoRoot, "dist-portable");
 const bundleName = `FCS Manager_${version}_x64-portable`;
 const bundleDir = join(outputRoot, bundleName);
 const zipPath = join(outputRoot, `${bundleName}.zip`);
+const portableExeName = `FCS.Manager_${version}_x64-portable.exe`;
+const portableExePath = join(outputRoot, portableExeName);
 
 rmSync(bundleDir, { recursive: true, force: true });
 rmSync(zipPath, { force: true });
+rmSync(portableExePath, { force: true });
 mkdirSync(bundleDir, { recursive: true });
 
 cpSync(exeSource, join(bundleDir, "FCS Manager.exe"));
+cpSync(exeSource, portableExePath);
 
 writeFileSync(
   join(bundleDir, "README.txt"),
@@ -71,3 +75,4 @@ if (process.platform === "win32") {
 }
 
 console.log(`Portable bundle created: ${zipPath}`);
+console.log(`Portable executable created: ${portableExePath}`);

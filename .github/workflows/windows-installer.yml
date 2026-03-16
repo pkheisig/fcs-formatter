@@ -46,7 +46,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fcs-manager-windows-portable
-          path: dist-portable/*.zip
+          path: |
+            dist-portable/*.zip
+            dist-portable/*.exe
           if-no-files-found: error
 
       - name: Attach installer to GitHub Release
@@ -56,3 +58,4 @@ jobs:
           files: |
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
             dist-portable/*.zip
+            dist-portable/*.exe

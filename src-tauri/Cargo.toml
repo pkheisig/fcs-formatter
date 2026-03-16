@@ -1,6 +1,6 @@
 [package]
 name = "fcs-manager"
-version = "0.1.0"
+version = "0.1.1"
 description = "Non-destructive FCS formatter desktop app"
 authors = ["Codex"]
 edition = "2024"

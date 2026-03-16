@@ -148,7 +148,13 @@ npm run package:windows:portable
 The portable zip is written to:
 
 ```text
-dist-portable/FCS Manager_0.1.0_x64-portable.zip
+dist-portable/FCS Manager_0.1.1_x64-portable.zip
+```
+
+The direct portable executable is also written to:
+
+```text
+dist-portable/FCS.Manager_0.1.1_x64-portable.exe
 ```
 
 Inside is:
@@ -163,14 +169,16 @@ Important limitations:
 - Windows may still show a SmartScreen warning because the app is unsigned
 - The portable `.exe` depends on Microsoft WebView2 already being available on the target PC, which is true on most Windows 10/11 machines but not guaranteed on older or locked-down systems
 
+To avoid SmartScreen warnings, you must sign the app with a trusted code-signing certificate (ideally EV). GitHub Releases alone does not remove that warning.
+
 ## Windows Release Artifact
 
 The repo includes a GitHub Actions workflow at `.github/workflows/windows-installer.yml`.
 
 - Manual run: Actions -> `Build Windows Installer`
-- Tagged release: push a tag like `v0.1.0`
-- Artifact output: uploaded `.exe`
-- Release output on tags: attached to the GitHub Release
+- Tagged release: push a tag like `v0.1.1`
+- Artifact output: uploaded installer `.exe`, portable `.zip`, and direct portable `.exe`
+- Release output on tags: all three files are attached to the GitHub Release
 
 Note that the self-contained installer is typically larger than 100 MB because it embeds the offline WebView2 runtime. That makes GitHub Releases the correct distribution path instead of committing the binary directly into git history.
 
