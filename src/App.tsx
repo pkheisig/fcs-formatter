@@ -72,7 +72,6 @@ type FileHandleLike = {
 };
 
 type DirectoryEntryHandleLike = FileHandleLike | DirectoryHandleLike;
-const DIRECTORY_PICKER_ID = "fcs-manager-working-dir";
 
 async function directoryHasFile(directoryHandle: DirectoryHandleLike, fileName: string): Promise<boolean> {
   try {
@@ -322,8 +321,6 @@ export default function App() {
     const directoryPicker = (
       window as Window & {
         showDirectoryPicker?: (options?: {
-          id?: string;
-          mode?: "read" | "readwrite";
           startIn?: unknown;
         }) => Promise<DirectoryHandleLike>;
       }
@@ -334,7 +331,7 @@ export default function App() {
     }
 
     try {
-      const directoryHandle = await directoryPicker({ id: DIRECTORY_PICKER_ID, mode: "read" });
+      const directoryHandle = await directoryPicker();
       const folderFiles = await collectFcsFilesFromDirectory(directoryHandle);
       if (folderFiles.length === 0) {
         setStatus("No .fcs files found in selected folder.");
@@ -517,8 +514,6 @@ export default function App() {
     const directoryPicker = (
       window as Window & {
         showDirectoryPicker?: (options?: {
-          id?: string;
-          mode?: "read" | "readwrite";
           startIn?: unknown;
         }) => Promise<DirectoryHandleLike>;
       }
@@ -547,20 +542,22 @@ export default function App() {
       const startHandle = lastSaveDirectoryHandle ?? lastImportDirectoryHandle;
       if (startHandle) {
         try {
-          await startHandle.requestPermission?.({ mode: "readwrite" });
-          directoryHandle = await directoryPicker({
-            id: DIRECTORY_PICKER_ID,
-            mode: "readwrite",
-            startIn: startHandle as unknown,
-          });
+          directoryHandle = await directoryPicker({ startIn: startHandle as unknown });
         } catch (error) {
           if (error instanceof DOMException && error.name === "AbortError") {
             throw error;
           }
-          directoryHandle = await directoryPicker({ id: DIRECTORY_PICKER_ID, mode: "readwrite" });
+          setLastSaveDirectoryHandle(null);
+          setLastImportDirectoryHandle(null);
+          directoryHandle = await directoryPicker();
         }
       } else {
-        directoryHandle = await directoryPicker({ id: DIRECTORY_PICKER_ID, mode: "readwrite" });
+        directoryHandle = await directoryPicker();
+      }
+      const permission = await directoryHandle.requestPermission?.({ mode: "readwrite" });
+      if (permission === "denied") {
+        setStatus("Write permission denied for selected folder.");
+        return;
       }
       const savedFiles: string[] = [];
       const warnings = [...prepared.warnings];
