@@ -21,26 +21,26 @@ FCS Manager is a browser-based app for cleaning up FCS files without touching th
 
 FCS Manager splits channel editing into the parts people actually care about:
 
-- `Primary Channels`: edit detector-facing primary names (`$PnN`)
-- `Secondary Channels`: edit fluorophore or marker labels (`$PnS`)
+- `Primary Names`: set fluorophore names (`$PnN`)
+- `Secondary Names`: set marker names (`$PnS`)
 - `All Parameters`: inspect the full TEXT-segment metadata for the selected file
 
 ### 🔬 Use cytometer-aware suggestions
 
 - Switch between built-in cytometer configs like `BD Fortessa 3L` and `BD Fortessa 4L`
 - Get detector-specific fluorophore suggestions based on the active config
-- Apply the common fluorophore for every fluorescence channel in one click
+- Auto-assign primary fluorophore names by default if detector matches are found
 
 ### ✍️ Paste fluorophore lists and auto-match them
 
 - Paste a list of fluorophores such as `BV421`, `FITC`, or `APC`
 - FCS Manager matches pasted values against the active detector config
-- Matching labels are dropped into the secondary channel field automatically
+- Matching fluorophores are applied to the primary name field automatically
 
 ### 🔁 Reuse mappings across files
 
-- Apply a secondary label to the same detector across every loaded file
-- Save the current detector-to-label mapping as your default
+- Apply a secondary marker name to the same detector across every loaded file
+- Save current detector mappings for both primary (fluorophore) and secondary (marker) names
 - Keep a personal mapping library in app storage for future sessions
 
 ### ⚙️ Manage default mappings
@@ -48,10 +48,10 @@ FCS Manager splits channel editing into the parts people actually care about:
 Inside Settings you can build and maintain a reusable detector mapping table:
 
 - Add mappings manually
-- Paste detector/label pairs from TSV or CSV
+- Paste detector/primary/secondary values from TSV or CSV
 - Export mappings as JSON
 - Import mappings from JSON
-- Turn default secondary mapping on or off
+- Turn default primary fluorophore auto-mapping on or off
 
 ### 📝 Plan output filenames before export
 
@@ -71,8 +71,8 @@ Inside Settings you can build and maintain a reusable detector mapping table:
 
 1. 📂 Load files or a full folder.
 2. 🧬 Pick a cytometer config.
-3. 🏷️ Update primary and secondary channel labels.
-4. ✨ Apply common fluorophores or paste a fluorophore list.
+3. ✨ Auto-fill primary fluorophore names (paste list optional).
+4. 🏷️ Fill in secondary marker names.
 5. 📝 Preview output filenames.
 6. 📤 Export clean copies.
 

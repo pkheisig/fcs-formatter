@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { Settings, FilePlus, FolderPlus, Trash2, Download, RefreshCw, Wand2, Save, FileUp, PlusCircle, FileSpreadsheet, Code, Check } from "lucide-react";
+import { Settings, FilePlus, FolderPlus, Trash2, Download, RefreshCw, Wand2, Save, FileUp, PlusCircle, FileSpreadsheet, Code } from "lucide-react";
 import {
   createExportZip,
   downloadBlob,
@@ -16,15 +16,19 @@ type WorkspaceTab = "filenames" | "primary" | "secondary" | "parameters";
 type ChannelMapping = {
   id: string;
   detector: string;
-  label: string;
+  primaryName: string;
+  secondaryName: string;
 };
 
 const tabs: { id: WorkspaceTab; label: string; description: string }[] = [
   { id: "filenames", label: "Filenames", description: "Autofill prefixes, suffixes, and numbered outputs." },
-  { id: "primary", label: "Primary Channels", description: "Edit $PnN detector-facing channel names." },
-  { id: "secondary", label: "Secondary Channels", description: "Edit $PnS labels and detector defaults." },
+  { id: "primary", label: "Primary Names", description: "Use fluorophore names in $PnN." },
+  { id: "secondary", label: "Secondary Names", description: "Use marker names in $PnS." },
   { id: "parameters", label: "All Parameters", description: "Inspect all TEXT-segment metadata on the selected file." }
 ];
+
+const NAMING_GUIDANCE =
+  "Tip: set Primary Names to fluorophores and Secondary Names to marker names.";
 
 function normalizeToken(value: string) {
   return value.toLowerCase().replace("fluor", "").replace(/[^a-z0-9]/g, "");
@@ -62,7 +66,15 @@ export default function App() {
   const [channelMappings, setChannelMappings] = useState<ChannelMapping[]>(() => {
     const saved = localStorage.getItem("channelMappings");
     try {
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map((entry) => ({
+        id: entry.id ?? crypto.randomUUID(),
+        detector: entry.detector ?? "",
+        primaryName: entry.primaryName ?? entry.label ?? "",
+        secondaryName: entry.secondaryName ?? "",
+      }));
     } catch {
       return [];
     }
@@ -129,6 +141,7 @@ export default function App() {
       ...file,
       channels: file.channels.map((channel) => {
         const normalizedDetector = normalizeDetector(channel.detector);
+        let newPrimaryName = channel.primaryName;
         let newSecondaryName = channel.secondaryName;
 
         const customMapping = channelMappings.find(
@@ -136,20 +149,31 @@ export default function App() {
             normalizeDetector(mapping.detector) === normalizedDetector ||
             mapping.detector.trim().toLowerCase() === channel.detector.trim().toLowerCase(),
         );
-        if (customMapping && customMapping.label && !newSecondaryName) {
-          newSecondaryName = customMapping.label;
+        if (
+          customMapping?.primaryName &&
+          (newPrimaryName.trim().length === 0 || newPrimaryName === channel.originalPrimaryName)
+        ) {
+          newPrimaryName = customMapping.primaryName;
+        }
+        if (customMapping?.secondaryName && newSecondaryName.trim().length === 0) {
+          newSecondaryName = customMapping.secondaryName;
         }
 
-        if (defaultSecondaryMapping && !newSecondaryName && activeCfg) {
+        if (
+          defaultSecondaryMapping &&
+          (newPrimaryName.trim().length === 0 || newPrimaryName === channel.originalPrimaryName) &&
+          activeCfg &&
+          channel.fluorescence
+        ) {
           const detectorConfig = activeCfg.detectors.find((item) =>
             normalizedDetector.includes(normalizeDetector(item.filter)),
           );
           if (detectorConfig?.commonFluorophore) {
-            newSecondaryName = detectorConfig.commonFluorophore;
+            newPrimaryName = detectorConfig.commonFluorophore;
           }
         }
 
-        return { ...channel, secondaryName: newSecondaryName };
+        return { ...channel, primaryName: newPrimaryName, secondaryName: newSecondaryName };
       }),
     }));
   }, []);
@@ -180,7 +204,7 @@ export default function App() {
         if (failed.length > 0) {
           parts.push(`Failed ${failed.length}: ${failed[0]}`);
         }
-        setStatus(parts.join(" "));
+        setStatus(`${parts.join(" ")} ${NAMING_GUIDANCE}`);
       }
     } catch (e) {
       setStatus(`Failed to load files: ${e}`);
@@ -246,22 +270,6 @@ export default function App() {
     );
   }
 
-  function applyCommonFluorophores() {
-    if (!selectedFile) return;
-    updateFile(selectedFile.path, (file) => ({
-      ...file,
-      channels: file.channels.map((channel) => {
-        if (!channel.fluorescence) return channel;
-        const detectorConfig = findDetectorConfig(channel.detector);
-        return {
-          ...channel,
-          secondaryName: detectorConfig?.commonFluorophore ?? channel.secondaryName
-        };
-      })
-    }));
-    setStatus(`Applied common fluorophore defaults for ${activeConfig?.name ?? "the selected cytometer"}.`);
-  }
-
   function applyMatchingFluorophoreList(rawValue: string) {
     if (!selectedFile) return;
 
@@ -284,10 +292,10 @@ export default function App() {
           )
         );
 
-        return match ? { ...channel, secondaryName: match } : channel;
+        return match ? { ...channel, primaryName: match } : channel;
       })
     }));
-    setStatus(`Matched pasted fluorophores against ${activeConfig?.name ?? "the active cytometer"} detectors.`);
+    setStatus(`Matched pasted fluorophores for ${activeConfig?.name ?? "the active cytometer"} detectors. ${NAMING_GUIDANCE}`);
   }
 
   function autofillFileNames() {
@@ -482,9 +490,6 @@ export default function App() {
                   ))}
                 </select>
               </label>
-              <button className="btn secondary-button" onClick={applyCommonFluorophores} disabled={!selectedFile}>
-                <Wand2 size={14} /> Common fluorophores
-              </button>
             </div>
           </div>
 
@@ -592,50 +597,68 @@ export default function App() {
             ) : null}
 
             {selectedFile && activeTab === "primary" ? (
-              <div className="channel-table">
-                <div className="channel-table-header">
-                  <span>Index</span>
-                  <span>Original primary</span>
-                  <span>Primary name ($PnN)</span>
-                </div>
-                {selectedFile.channels.map((channel) => (
-                  <div className="channel-row" key={`${selectedFile.path}-primary-${channel.index}`}>
-                    <div className="index-pill" style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>{channel.index}</div>
-                    <div className="detector-cell">
-                      <strong>{channel.originalPrimaryName}</strong>
-                      <small>{channel.secondaryName || "No secondary name"}</small>
-                    </div>
-                    <input
-                      value={channel.primaryName}
-                      onChange={(event) =>
-                        updateChannel(selectedFile.path, channel.index, "primaryName", event.target.value)
-                      }
-                      placeholder="Primary channel name"
+              <div className="editor-surface">
+                <div className="surface-tools" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+                  <div className="field-block wide" style={{ marginBottom: 0 }}>
+                    <textarea
+                      placeholder="Paste fluorophores (e.g., BV421, FITC, APC) to auto-fill Primary Names by detector match..."
+                      onBlur={(event) => applyMatchingFluorophoreList(event.target.value)}
                     />
                   </div>
-                ))}
+                  <small style={{ color: 'var(--muted)' }}>{NAMING_GUIDANCE}</small>
+                </div>
+
+                <div className="channel-table">
+                  <div className="channel-table-header" style={{ gridTemplateColumns: '80px 1.3fr 1fr 1fr' }}>
+                    <span>Index</span>
+                    <span>Detector</span>
+                    <span>Suggested fluorophore</span>
+                    <span>Primary name ($PnN)</span>
+                  </div>
+                  {selectedFile.channels.map((channel) => {
+                    const detectorConfig = findDetectorConfig(channel.detector);
+                    return (
+                      <div className="channel-row" key={`${selectedFile.path}-primary-${channel.index}`} style={{ gridTemplateColumns: '80px 1.3fr 1fr 1fr' }}>
+                        <div className="index-pill" style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>{channel.index}</div>
+                        <div className="detector-cell">
+                          <strong>{channel.originalPrimaryName}</strong>
+                          <small>{channel.detector}</small>
+                        </div>
+                        <div>
+                          {detectorConfig?.commonFluorophore ? (
+                            <span className="tag suggestion-text">{detectorConfig.commonFluorophore}</span>
+                          ) : (
+                            <span className="tag">No match</span>
+                          )}
+                        </div>
+                        <input
+                          value={channel.primaryName}
+                          onChange={(event) =>
+                            updateChannel(selectedFile.path, channel.index, "primaryName", event.target.value)
+                          }
+                          placeholder="Primary fluorophore"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             ) : null}
 
             {selectedFile && activeTab === "secondary" ? (
               <div className="editor-surface">
                 <div className="surface-tools" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '16px' }}>
-                  <div className="field-block wide" style={{ marginBottom: 0 }}>
-                    <textarea
-                      placeholder="Paste fluorophores (e.g., BV421, FITC) to auto-match detectors..."
-                      onBlur={(event) => applyMatchingFluorophoreList(event.target.value)}
-                    />
-                  </div>
                   <div style={{ alignSelf: 'flex-start', width: '100%' }}>
                     <button
                       className="btn prominent-save-button"
                       onClick={() => {
                         const newMappings = selectedFile.channels
-                          .filter(c => c.secondaryName)
+                          .filter((channel) => channel.primaryName.trim() || channel.secondaryName.trim())
                           .map(c => ({
                             id: crypto.randomUUID(),
                             detector: c.detector,
-                            label: c.secondaryName
+                            primaryName: c.primaryName,
+                            secondaryName: c.secondaryName
                           }));
                         
                         if (newMappings.length > 0) {
@@ -643,62 +666,32 @@ export default function App() {
                           for (const nm of newMappings) {
                             const existingIdx = currentMappings.findIndex(cm => cm.detector.toLowerCase() === nm.detector.toLowerCase());
                             if (existingIdx >= 0) {
-                              currentMappings[existingIdx].label = nm.label;
+                              currentMappings[existingIdx].primaryName = nm.primaryName;
+                              currentMappings[existingIdx].secondaryName = nm.secondaryName;
                             } else {
                               currentMappings.push(nm);
                             }
                           }
                           setChannelMappings(currentMappings);
-                          setStatus("Saved current secondary channels as default mapping.");
+                          setStatus("Saved primary/secondary name defaults for the active detector mappings.");
                         }
                       }}
                     >
-                      <Save size={16} /> Save current mapping as default
+                      <Save size={16} /> Save current names as defaults
                     </button>
                   </div>
                 </div>
 
                 <div className="channel-table">
-                  <div className="channel-table-header">
+                  <div className="channel-table-header" style={{ gridTemplateColumns: '1fr 1.4fr' }}>
                     <span>Detector</span>
-                    <span>Suggested</span>
-                    <span>Secondary name ($PnS)</span>
+                    <span>Secondary name ($PnS marker)</span>
                   </div>
-                  {selectedFile.channels.map((channel) => {
-                    const detectorConfig = findDetectorConfig(channel.detector);
-                    return (
-                      <div className="channel-row" key={`${selectedFile.path}-secondary-${channel.index}`}>
+                  {selectedFile.channels.map((channel) => (
+                      <div className="channel-row" key={`${selectedFile.path}-secondary-${channel.index}`} style={{ gridTemplateColumns: '1fr 1.4fr' }}>
                         <div className="detector-cell">
-                          <strong>{channel.detector}</strong>
-                          <small>{channel.originalPrimaryName}</small>
-                        </div>
-                        <div className="suggestion-cell" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {detectorConfig?.commonFluorophore ? (
-                            <>
-                              <span className="tag suggestion-text">
-                                {detectorConfig.commonFluorophore}
-                              </span>
-                              <button
-                                className="btn secondary-button"
-                                onClick={() => {
-                                  updateFile(selectedFile.path, (file) => ({
-                                    ...file,
-                                    channels: file.channels.map((c) => {
-                                      if (c.detector === channel.detector) {
-                                        return { ...c, secondaryName: detectorConfig.commonFluorophore! };
-                                      }
-                                      return c;
-                                    })
-                                  }));
-                                }}
-                                style={{ padding: '2px 6px', fontSize: '10px', height: 'auto', minHeight: 'auto' }}
-                              >
-                                <Check size={10} /> Apply
-                              </button>
-                            </>
-                          ) : (
-                            <span className="tag">No match</span>
-                          )}
+                          <strong>{channel.primaryName || channel.originalPrimaryName}</strong>
+                          <small>{channel.detector}</small>
                         </div>
                         <div className="input-with-action">
                           <input
@@ -724,8 +717,7 @@ export default function App() {
                           </button>
                         </div>
                       </div>
-                    );
-                  })}
+                  ))}
                 </div>
               </div>
             ) : null}
@@ -770,16 +762,16 @@ export default function App() {
                   checked={defaultSecondaryMapping}
                   onChange={(e) => setDefaultSecondaryMapping(e.target.checked)}
                 />
-                <span>Map secondary channels by default</span>
+                <span>Auto-assign primary fluorophore names by default</span>
               </label>
 
               <hr style={{ margin: '8px 0', border: 'none', borderTop: '1px solid var(--panel-line)' }} />
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div>
-                  <h3 style={{ margin: '0 0 4px 0', fontSize: '14px', color: 'var(--text)' }}>Default Channel Mapping</h3>
+                  <h3 style={{ margin: '0 0 4px 0', fontSize: '14px', color: 'var(--text)' }}>Default Name Mapping</h3>
                   <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
-                    Map detector names to default secondary labels (e.g., FL1-H &rarr; FITC).
+                    Map detector names to both default Primary Names (fluorophores) and Secondary Names (markers).
                   </p>
                 </div>
                 
@@ -787,7 +779,7 @@ export default function App() {
                   {channelMappings.map((mapping, idx) => (
                     <div key={mapping.id} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <input 
-                        style={{ flex: 1, margin: 0 }}
+                        style={{ flex: 1.2, margin: 0 }}
                         placeholder="Detector (e.g. FL1-H)" 
                         value={mapping.detector} 
                         onChange={e => {
@@ -798,11 +790,21 @@ export default function App() {
                       />
                       <input 
                         style={{ flex: 1, margin: 0 }}
-                        placeholder="Label (e.g. FITC)" 
-                        value={mapping.label} 
+                        placeholder="Primary (e.g. FITC)" 
+                        value={mapping.primaryName} 
                         onChange={e => {
                           const newMappings = [...channelMappings];
-                          newMappings[idx].label = e.target.value;
+                          newMappings[idx].primaryName = e.target.value;
+                          setChannelMappings(newMappings);
+                        }} 
+                      />
+                      <input 
+                        style={{ flex: 1, margin: 0 }}
+                        placeholder="Secondary (e.g. CD3)" 
+                        value={mapping.secondaryName} 
+                        onChange={e => {
+                          const newMappings = [...channelMappings];
+                          newMappings[idx].secondaryName = e.target.value;
                           setChannelMappings(newMappings);
                         }} 
                       />
@@ -820,21 +822,26 @@ export default function App() {
                 <div className="button-group">
                   <button 
                     className="btn secondary-button" 
-                    onClick={() => setChannelMappings([...channelMappings, { id: crypto.randomUUID(), detector: '', label: '' }])}
+                    onClick={() => setChannelMappings([...channelMappings, { id: crypto.randomUUID(), detector: '', primaryName: '', secondaryName: '' }])}
                   >
                     <PlusCircle size={14} /> Add Mapping
                   </button>
                   <button
                     className="btn secondary-button"
                     onClick={() => {
-                      const data = prompt("Paste TSV or CSV data here (Column A = Detector, Column B = Label)");
+                      const data = prompt("Paste TSV or CSV data (Column A = Detector, B = Primary, C = Secondary)");
                       if (data) {
                         const rows = data.split('\n').map(row => row.trim()).filter(Boolean);
                         const newMappings: ChannelMapping[] = [];
                         for (const row of rows) {
                           const cols = row.split(/[\t,]/).map(c => c.trim());
                           if (cols.length >= 2) {
-                            newMappings.push({ id: crypto.randomUUID(), detector: cols[0], label: cols[1] });
+                            newMappings.push({
+                              id: crypto.randomUUID(),
+                              detector: cols[0],
+                              primaryName: cols[1] ?? "",
+                              secondaryName: cols[2] ?? "",
+                            });
                           }
                         }
                         if (newMappings.length > 0) {
@@ -874,7 +881,14 @@ export default function App() {
                             try {
                               const json = JSON.parse(event.target?.result as string);
                               if (Array.isArray(json)) {
-                                const validMappings = json.filter(m => m.id && m.detector !== undefined && m.label !== undefined);
+                                const validMappings = json
+                                  .filter((entry) => entry && entry.detector !== undefined)
+                                  .map((entry) => ({
+                                    id: entry.id ?? crypto.randomUUID(),
+                                    detector: entry.detector ?? "",
+                                    primaryName: entry.primaryName ?? entry.label ?? "",
+                                    secondaryName: entry.secondaryName ?? "",
+                                  }));
                                 setChannelMappings(validMappings);
                               }
                             } catch (err) {
