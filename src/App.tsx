@@ -55,6 +55,7 @@ function incrementString(str: string, index: number) {
 type DirectoryHandleLike = {
   kind?: "directory";
   name?: string;
+  requestPermission?: (options?: { mode?: "read" | "readwrite" }) => Promise<PermissionState>;
   getFileHandle: (name: string, options?: { create?: boolean }) => Promise<{
     createWritable: () => Promise<{
       write: (data: Uint8Array) => Promise<void>;
@@ -71,6 +72,7 @@ type FileHandleLike = {
 };
 
 type DirectoryEntryHandleLike = FileHandleLike | DirectoryHandleLike;
+const DIRECTORY_PICKER_ID = "fcs-manager-working-dir";
 
 async function directoryHasFile(directoryHandle: DirectoryHandleLike, fileName: string): Promise<boolean> {
   try {
@@ -331,7 +333,7 @@ export default function App() {
     }
 
     try {
-      const directoryHandle = await directoryPicker({ id: "fcs-manager-import", mode: "read" });
+      const directoryHandle = await directoryPicker({ id: DIRECTORY_PICKER_ID, mode: "read" });
       const folderFiles = await collectFcsFilesFromDirectory(directoryHandle);
       if (folderFiles.length === 0) {
         setStatus("No .fcs files found in selected folder.");
@@ -543,20 +545,20 @@ export default function App() {
       let directoryHandle: DirectoryHandleLike;
       if (lastImportDirectoryHandle) {
         try {
+          await lastImportDirectoryHandle.requestPermission?.({ mode: "readwrite" });
           directoryHandle = await directoryPicker({
-            id: "fcs-manager-save",
+            id: DIRECTORY_PICKER_ID,
             mode: "readwrite",
             startIn: lastImportDirectoryHandle as unknown,
           });
         } catch (error) {
-          if (error instanceof DOMException && error.name !== "AbortError") {
-            directoryHandle = await directoryPicker({ id: "fcs-manager-save", mode: "readwrite" });
-          } else {
+          if (error instanceof DOMException && error.name === "AbortError") {
             throw error;
           }
+          directoryHandle = await directoryPicker({ id: DIRECTORY_PICKER_ID, mode: "readwrite" });
         }
       } else {
-        directoryHandle = await directoryPicker({ id: "fcs-manager-save", mode: "readwrite" });
+        directoryHandle = await directoryPicker({ id: DIRECTORY_PICKER_ID, mode: "readwrite" });
       }
       const savedFiles: string[] = [];
       const warnings = [...prepared.warnings];
