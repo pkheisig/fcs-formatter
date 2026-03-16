@@ -180,6 +180,7 @@ export default function App() {
   const [isBusy, setIsBusy] = useState(false);
   const [keepOriginalFiles, setKeepOriginalFiles] = useState(true);
   const [lastImportDirectoryHandle, setLastImportDirectoryHandle] = useState<DirectoryHandleLike | null>(null);
+  const [lastSaveDirectoryHandle, setLastSaveDirectoryHandle] = useState<DirectoryHandleLike | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [status, setStatus] = useState("Load `.fcs` files to begin.");
   const [lastExport, setLastExport] = useState<string[]>([]);
@@ -543,13 +544,14 @@ export default function App() {
       }));
       const prepared = createExportFiles(files, channelTemplate);
       let directoryHandle: DirectoryHandleLike;
-      if (lastImportDirectoryHandle) {
+      const startHandle = lastSaveDirectoryHandle ?? lastImportDirectoryHandle;
+      if (startHandle) {
         try {
-          await lastImportDirectoryHandle.requestPermission?.({ mode: "readwrite" });
+          await startHandle.requestPermission?.({ mode: "readwrite" });
           directoryHandle = await directoryPicker({
             id: DIRECTORY_PICKER_ID,
             mode: "readwrite",
-            startIn: lastImportDirectoryHandle as unknown,
+            startIn: startHandle as unknown,
           });
         } catch (error) {
           if (error instanceof DOMException && error.name === "AbortError") {
@@ -580,6 +582,7 @@ export default function App() {
         savedFiles.push(targetName);
       }
 
+      setLastSaveDirectoryHandle(directoryHandle);
       setLastExport(savedFiles);
       const warningText = warnings.length > 0 ? ` ${warnings[0]}` : "";
       setStatus(`Saved ${savedFiles.length} files to the selected folder.${warningText}`);
