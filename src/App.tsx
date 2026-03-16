@@ -56,7 +56,7 @@ export default function App() {
   const [configs, setConfigs] = useState<CytometerConfig[]>([]);
   const [files, setFiles] = useState<FcsFileRecord[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("filenames");
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("primary");
   const [configName, setConfigName] = useState("");
 
   const [showSettings, setShowSettings] = useState(false);
