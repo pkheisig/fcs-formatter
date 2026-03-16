@@ -1,63 +1,22 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { Settings, FilePlus, FolderPlus, FolderOutput, Trash2, Download, RefreshCw, Wand2, Save, FileUp, PlusCircle, FileSpreadsheet, Code, Check } from "lucide-react";
+import { Settings, FilePlus, FolderPlus, Trash2, Download, RefreshCw, Wand2, Save, FileUp, PlusCircle, FileSpreadsheet, Code, Check } from "lucide-react";
+import {
+  createExportZip,
+  downloadBlob,
+  getCytometerConfigs,
+  parseFcsInputFiles,
+  type ChannelEdit,
+  type ConfigBootstrap,
+  type CytometerConfig,
+  type FcsFileRecord,
+} from "./fcs-web";
 
 type WorkspaceTab = "filenames" | "primary" | "secondary" | "parameters";
-
-type DetectorConfig = {
-  filter: string;
-  fluorophores: string[];
-  commonFluorophore: string | null;
-};
-
-type CytometerConfig = {
-  name: string;
-  detectors: DetectorConfig[];
-};
-
-type ChannelRecord = {
-  index: number;
-  detector: string;
-  originalPrimaryName: string;
-  primaryName: string;
-  secondaryName: string;
-  fluorescence: boolean;
-};
-
-type MetadataEntry = {
-  key: string;
-  value: string;
-};
-
-type FcsFileRecord = {
-  path: string;
-  directory: string;
-  fileName: string;
-  originalBaseName: string;
-  outputBaseName: string;
-  sizeBytes: number;
-  eventCount: number;
-  parameterCount: number;
-  channels: ChannelRecord[];
-  parameters: MetadataEntry[];
-};
-
-type ConfigBootstrap = {
-  defaultConfig: string;
-  configs: CytometerConfig[];
-};
 
 type ChannelMapping = {
   id: string;
   detector: string;
   label: string;
-};
-
-type ProcessResult = {
-  createdFiles: string[];
-  warnings: string[];
 };
 
 const tabs: { id: WorkspaceTab; label: string; description: string }[] = [
@@ -95,11 +54,9 @@ export default function App() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("filenames");
   const [configName, setConfigName] = useState("");
-  const [outputDirectory, setOutputDirectory] = useState<string | null>(null);
-  
+
   const [showSettings, setShowSettings] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("light");
-  const [defaultKeepOriginals, setDefaultKeepOriginals] = useState(true);
   const [defaultSecondaryMapping, setDefaultSecondaryMapping] = useState(true);
 
   const [channelMappings, setChannelMappings] = useState<ChannelMapping[]>(() => {
@@ -115,7 +72,6 @@ export default function App() {
     localStorage.setItem("channelMappings", JSON.stringify(channelMappings));
   }, [channelMappings]);
 
-  const [keepOriginals, setKeepOriginals] = useState(true);
   const [prefix, setPrefix] = useState("");
   const [incrementPrefix, setIncrementPrefix] = useState(false);
   const [suffix, setSuffix] = useState("");
@@ -127,10 +83,20 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [status, setStatus] = useState("Load `.fcs` files to begin.");
   const [lastExport, setLastExport] = useState<string[]>([]);
+  const filesPickerRef = useRef<HTMLInputElement>(null);
+  const folderPickerRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    const folderInput = folderPickerRef.current;
+    if (folderInput) {
+      folderInput.setAttribute("webkitdirectory", "");
+      folderInput.setAttribute("directory", "");
+    }
+  }, []);
 
   const filesRef = useRef<FcsFileRecord[]>([]);
   useEffect(() => {
@@ -155,117 +121,99 @@ export default function App() {
     settingsRef.current = { defaultSecondaryMapping, configs, configName, channelMappings };
   }, [defaultSecondaryMapping, configs, configName, channelMappings]);
 
-  const loadInputs = useCallback(async (paths: string[]) => {
-    const knownPaths = filesRef.current.map((file) => file.path);
-    const merged = [...knownPaths, ...paths];
+  const applyInitialSecondaryMapping = useCallback((loaded: FcsFileRecord[]) => {
+    const { defaultSecondaryMapping, configs, configName, channelMappings } = settingsRef.current;
+    const activeCfg = configs.find((config) => config.name === configName) ?? configs[0] ?? null;
 
+    return loaded.map((file) => ({
+      ...file,
+      channels: file.channels.map((channel) => {
+        const normalizedDetector = normalizeDetector(channel.detector);
+        let newSecondaryName = channel.secondaryName;
+
+        const customMapping = channelMappings.find(
+          (mapping) =>
+            normalizeDetector(mapping.detector) === normalizedDetector ||
+            mapping.detector.trim().toLowerCase() === channel.detector.trim().toLowerCase(),
+        );
+        if (customMapping && customMapping.label && !newSecondaryName) {
+          newSecondaryName = customMapping.label;
+        }
+
+        if (defaultSecondaryMapping && !newSecondaryName && activeCfg) {
+          const detectorConfig = activeCfg.detectors.find((item) =>
+            normalizedDetector.includes(normalizeDetector(item.filter)),
+          );
+          if (detectorConfig?.commonFluorophore) {
+            newSecondaryName = detectorConfig.commonFluorophore;
+          }
+        }
+
+        return { ...channel, secondaryName: newSecondaryName };
+      }),
+    }));
+  }, []);
+
+  const loadInputs = useCallback(async (inputFiles: File[]) => {
     setIsBusy(true);
     try {
-      const loaded = await invoke<FcsFileRecord[]>("load_fcs_inputs", { paths: merged });
-      
-      const { defaultSecondaryMapping, configs, configName, channelMappings } = settingsRef.current;
-      const activeCfg = configs.find(c => c.name === configName) ?? configs[0] ?? null;
-      
-      let processedFiles = loaded.map(file => ({
-        ...file,
-        channels: file.channels.map(channel => {
-          const normalizedDetector = normalizeDetector(channel.detector);
-          let newSecondaryName = channel.secondaryName;
+      const { records, failed } = await parseFcsInputFiles(inputFiles);
+      const existing = filesRef.current;
+      const existingKeys = new Set(existing.map((file) => file.path));
+      const fresh = records.filter((file) => !existingKeys.has(file.path));
+      const processed = applyInitialSecondaryMapping(fresh);
+      const merged = [...existing, ...processed];
 
-          // 1. Check custom mappings
-          const customMapping = channelMappings.find(
-            (m) => normalizeDetector(m.detector) === normalizedDetector || m.detector.trim().toLowerCase() === channel.detector.trim().toLowerCase()
-          );
-          if (customMapping && customMapping.label && !newSecondaryName) {
-            newSecondaryName = customMapping.label;
-          }
-
-          // 2. Fallback to cytometer config
-          if (defaultSecondaryMapping && !newSecondaryName && activeCfg) {
-            const detectorConfig = activeCfg.detectors.find(
-              (item) => normalizedDetector.includes(normalizeDetector(item.filter))
-            );
-            if (detectorConfig?.commonFluorophore) {
-              newSecondaryName = detectorConfig.commonFluorophore;
-            }
-          }
-
-          return { ...channel, secondaryName: newSecondaryName };
-        })
-      }));
-
-      setFiles(processedFiles);
-      if (processedFiles.length > 0) {
-        setSelectedPath((current) => current ?? processedFiles[0].path);
+      setFiles(merged);
+      if (merged.length > 0) {
+        setSelectedPath((current) => current ?? merged[0].path);
       }
-      setStatus(`Loaded ${processedFiles.length} files. Editing remains non-destructive until export.`);
+
+      const duplicates = records.length - fresh.length;
+      if (fresh.length === 0 && failed.length === 0 && duplicates > 0) {
+        setStatus("Those files are already loaded.");
+      } else {
+        const parts = [`Loaded ${fresh.length} file${fresh.length === 1 ? "" : "s"}.`];
+        if (duplicates > 0) {
+          parts.push(`Skipped ${duplicates} duplicate${duplicates === 1 ? "" : "s"}.`);
+        }
+        if (failed.length > 0) {
+          parts.push(`Failed ${failed.length}: ${failed[0]}`);
+        }
+        setStatus(parts.join(" "));
+      }
     } catch (e) {
       setStatus(`Failed to load files: ${e}`);
     } finally {
       setIsBusy(false);
     }
-  }, []);
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    async function setupDragDrop() {
-      unlisten = await getCurrentWebview().onDragDropEvent((event) => {
-        if (event.payload.type === 'over' || event.payload.type === 'enter') {
-          setIsDragging(true);
-        } else if (event.payload.type === 'leave') {
-          setIsDragging(false);
-        } else if (event.payload.type === 'drop') {
-          setIsDragging(false);
-          const droppedPaths = event.payload.paths.filter(p => p.toLowerCase().endsWith('.fcs'));
-          if (droppedPaths.length > 0) {
-            void loadInputs(droppedPaths);
-          }
-        }
-      });
-    }
-    void setupDragDrop();
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, [loadInputs]);
+  }, [applyInitialSecondaryMapping]);
 
   async function loadConfigs() {
-    const bootstrap = await invoke<ConfigBootstrap>("get_cytometer_configs");
+    const bootstrap: ConfigBootstrap = getCytometerConfigs();
     setConfigs(bootstrap.configs);
     setConfigName(bootstrap.defaultConfig);
   }
 
-  async function addFiles() {
-    const selection = await open({
-      multiple: true,
-      directory: false,
-      filters: [{ name: "FCS", extensions: ["fcs"] }]
-    });
-
-    if (!selection) return;
-    const paths = Array.isArray(selection) ? selection : [selection];
-    await loadInputs(paths);
+  function handleFileSelection(fileList: FileList | null) {
+    if (!fileList) return;
+    void loadInputs(Array.from(fileList));
   }
 
-  async function addFolder() {
-    const selection = await open({
-      multiple: false,
-      directory: true
-    });
-
-    if (!selection || Array.isArray(selection)) return;
-    await loadInputs([selection]);
+  function addFiles() {
+    filesPickerRef.current?.click();
   }
 
-  async function chooseOutputDirectory() {
-    const selection = await open({
-      multiple: false,
-      directory: true
-    });
+  function addFolder() {
+    folderPickerRef.current?.click();
+  }
 
-    if (!selection || Array.isArray(selection)) return;
-    setOutputDirectory(selection);
-    setStatus(`Custom output directory set to ${selection}.`);
+  function onDropFiles(event: React.DragEvent<HTMLElement>) {
+    event.preventDefault();
+    setIsDragging(false);
+    if (event.dataTransfer.files.length > 0) {
+      void loadInputs(Array.from(event.dataTransfer.files));
+    }
   }
 
   function updateFile(path: string, updater: (file: FcsFileRecord) => FcsFileRecord) {
@@ -391,30 +339,48 @@ export default function App() {
     }
 
     setIsBusy(true);
-    const result = await invoke<ProcessResult>("process_fcs_files", {
-      request: {
-        files: files.map((file) => ({
-          path: file.path,
-          outputBaseName: file.outputBaseName.trim()
-        })),
-        channelTemplate: templateFile.channels.map((channel) => ({
-          originalPrimaryName: channel.originalPrimaryName,
-          primaryName: channel.primaryName.trim(),
-          secondaryName: channel.secondaryName
-        })),
-        keepOriginals,
-        outputDirectory
-      }
-    });
-
-    setLastExport(result.createdFiles);
-    const warningText = result.warnings.length > 0 ? ` ${result.warnings[0]}` : "";
-    setStatus(`Exported ${result.createdFiles.length} files.${warningText}`);
-    setIsBusy(false);
+    try {
+      const channelTemplate: ChannelEdit[] = templateFile.channels.map((channel) => ({
+        originalPrimaryName: channel.originalPrimaryName,
+        primaryName: channel.primaryName.trim(),
+        secondaryName: channel.secondaryName,
+      }));
+      const result = await createExportZip(files, channelTemplate);
+      downloadBlob(result.zipBlob, result.zipName);
+      setLastExport(result.createdFiles);
+      const warningText = result.warnings.length > 0 ? ` ${result.warnings[0]}` : "";
+      setStatus(`Prepared ${result.createdFiles.length} files. Downloaded ${result.zipName}.${warningText}`);
+    } catch (error) {
+      setStatus(`Export failed: ${error}`);
+    } finally {
+      setIsBusy(false);
+    }
   }
 
   return (
     <div className="app-shell">
+      <input
+        ref={filesPickerRef}
+        type="file"
+        accept=".fcs"
+        multiple
+        style={{ display: "none" }}
+        onChange={(event) => {
+          handleFileSelection(event.target.files);
+          event.target.value = "";
+        }}
+      />
+      <input
+        ref={folderPickerRef}
+        type="file"
+        accept=".fcs"
+        multiple
+        style={{ display: "none" }}
+        onChange={(event) => {
+          handleFileSelection(event.target.files);
+          event.target.value = "";
+        }}
+      />
 
       <header className="hero">
         <div className="hero-copy" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -431,14 +397,11 @@ export default function App() {
           <button className="btn secondary-button" onClick={addFolder} disabled={isBusy}>
             <FolderPlus size={14} /> Add folder
           </button>
-          <button className="btn secondary-button" onClick={chooseOutputDirectory} disabled={isBusy}>
-            <FolderOutput size={14} /> Output folder
-          </button>
           <button className="btn danger-button" onClick={() => setFiles([])} disabled={isBusy || files.length === 0}>
             <Trash2 size={14} /> Clear all files
           </button>
           <button className="btn primary-button" onClick={exportFiles} disabled={isBusy || files.length === 0}>
-            <Download size={14} /> {isBusy ? "Working..." : "Export copies"}
+            <Download size={14} /> {isBusy ? "Working..." : "Download zip"}
           </button>
         </div>
       </header>
@@ -448,19 +411,29 @@ export default function App() {
       </section>
 
       <main className="workspace">
-        <aside className={`file-rail panel ${isDragging ? 'is-dragging' : ''}`}>
+        <aside
+          className={`file-rail panel ${isDragging ? "is-dragging" : ""}`}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={(event) => {
+            event.preventDefault();
+            const related = event.relatedTarget as Node | null;
+            if (!related || !event.currentTarget.contains(related)) {
+              setIsDragging(false);
+            }
+          }}
+          onDrop={onDropFiles}
+        >
           <div className="panel-header">
             <div>
               <h2>Files</h2>
             </div>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={keepOriginals}
-                onChange={(event) => setKeepOriginals(event.target.checked)}
-              />
-              <span>Keep originals</span>
-            </label>
           </div>
 
           <div className="rail-list">
@@ -608,8 +581,8 @@ export default function App() {
                           placeholder="Output base name"
                         />
                         <div className="detector-cell">
-                          <strong>{outputDirectory ? "Custom Output" : "_formatted"}</strong>
-                          <small>Original file stays in place</small>
+                          <strong>Download ZIP</strong>
+                          <small>Original files on disk are unchanged</small>
                         </div>
                       </div>
                     ))}
@@ -790,17 +763,6 @@ export default function App() {
                   <option value="dark">Dark</option>
                   <option value="light">Light</option>
                 </select>
-              </label>
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={defaultKeepOriginals}
-                  onChange={(e) => {
-                    setDefaultKeepOriginals(e.target.checked);
-                    setKeepOriginals(e.target.checked);
-                  }}
-                />
-                <span>Keep original files by default</span>
               </label>
               <label className="toggle">
                 <input

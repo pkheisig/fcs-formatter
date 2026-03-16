@@ -32,9 +32,6 @@ jobs:
       - name: Build self-contained NSIS installer
         run: npm run build:windows:ci
 
-      - name: Build portable zip
-        run: npm run package:windows:portable
-
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
@@ -42,20 +39,8 @@ jobs:
           path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
           if-no-files-found: error
 
-      - name: Upload portable artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: fcs-manager-windows-portable
-          path: |
-            dist-portable/*.zip
-            dist-portable/*.exe
-          if-no-files-found: error
-
       - name: Attach installer to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-            dist-portable/*.zip
-            dist-portable/*.exe
+          files: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe

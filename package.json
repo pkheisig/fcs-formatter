@@ -8,13 +8,13 @@
     "build": "tsc && vite build",
     "build:windows:local": "tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc",
     "build:windows:ci": "tauri build --target x86_64-pc-windows-msvc --bundles nsis",
-    "package:windows:portable": "node scripts/package-windows-portable.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.4.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.577.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"

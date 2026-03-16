@@ -1,6 +1,6 @@
 # FCS Manager
 
-FCS Manager is a desktop app for cleaning up FCS files without touching the originals. Load one file or a whole folder, review channel names and metadata, plan output filenames, then export fresh `.fcs` copies with the labels you want.
+FCS Manager is a browser-based app for cleaning up FCS files without touching the originals. Load one file or a whole folder, review channel names and metadata, plan output filenames, then download fresh `.fcs` copies with the labels you want.
 
 ## Why People Use It
 
@@ -64,9 +64,8 @@ Inside Settings you can build and maintain a reusable detector mapping table:
 ### 📦 Export safely
 
 - Export new `.fcs` copies instead of overwriting the originals
-- Keep originals and write new files into an `_formatted` folder
-- Or export into a custom output directory
-- If a target filename already exists, the app automatically finds a free filename
+- Download the processed files as a ZIP
+- Original source files on the user machine stay untouched
 
 ## Typical Workflow
 
@@ -80,18 +79,15 @@ Inside Settings you can build and maintain a reusable detector mapping table:
 ## Small Quality-of-Life Features
 
 - 🌗 Light and dark theme toggle
-- ✅ "Keep originals" toggle in the workspace
 - 📌 Status bar feedback for loading, mapping, and export actions
 
 ## Technical Stuff
 
-The app is built as a desktop application with:
+The web app is built with:
 
 - React + TypeScript for the UI
 - Vite for frontend development/builds
-- Tauri 2 for the desktop shell
-- Rust for file processing
-- `flow-fcs` for FCS parsing and writing
+- In-browser FCS parsing/editing and ZIP download
 
 ## Development
 
@@ -101,19 +97,34 @@ Install dependencies:
 npm install
 ```
 
-Run the desktop app in development:
+Run the web app locally:
 
 ```bash
-npm run tauri -- dev
+npm run dev
 ```
 
-Build the frontend:
+Build production assets:
 
 ```bash
 npm run build
 ```
 
-Create a desktop bundle:
+## Deploy For Colleagues (No Install)
+
+This repo includes `.github/workflows/web-pages.yml` to publish `dist/` to GitHub Pages.
+
+- Push to `master` (or run workflow manually)
+- Open the Actions workflow `Deploy Web App`
+- Share the GitHub Pages URL with colleagues
+- File processing stays in the browser (files are not uploaded by default)
+
+URL format:
+
+```text
+https://<your-github-username>.github.io/fcs-manager/
+```
+
+## Optional Desktop Builds
 
 ```bash
 npm run tauri -- build --debug
@@ -136,49 +147,14 @@ src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/
 
 This installer uses Tauri's `offlineInstaller` WebView2 mode, so the `.exe` includes the browser runtime and does not require the end user to install any extra dependency manually.
 
-## Portable Windows Build
-
-If you want a no-install version for a colleague, build the Windows executable and then package the portable zip:
-
-```bash
-npm run build:windows:local
-npm run package:windows:portable
-```
-
-The portable zip is written to:
-
-```text
-dist-portable/FCS Manager_0.1.1_x64-portable.zip
-```
-
-The direct portable executable is also written to:
-
-```text
-dist-portable/FCS.Manager_0.1.1_x64-portable.exe
-```
-
-Inside is:
-
-- `FCS Manager.exe`
-- `README.txt`
-
-This is the cheapest and simplest distribution path. Your colleague can extract the zip and run the app directly without using an installer.
-
-Important limitations:
-
-- Windows may still show a SmartScreen warning because the app is unsigned
-- The portable `.exe` depends on Microsoft WebView2 already being available on the target PC, which is true on most Windows 10/11 machines but not guaranteed on older or locked-down systems
-
-To avoid SmartScreen warnings, you must sign the app with a trusted code-signing certificate (ideally EV). GitHub Releases alone does not remove that warning.
-
 ## Windows Release Artifact
 
 The repo includes a GitHub Actions workflow at `.github/workflows/windows-installer.yml`.
 
 - Manual run: Actions -> `Build Windows Installer`
 - Tagged release: push a tag like `v0.1.1`
-- Artifact output: uploaded installer `.exe`, portable `.zip`, and direct portable `.exe`
-- Release output on tags: all three files are attached to the GitHub Release
+- Artifact output: uploaded installer `.exe`
+- Release output on tags: installer attached to the GitHub Release
 
 Note that the self-contained installer is typically larger than 100 MB because it embeds the offline WebView2 runtime. That makes GitHub Releases the correct distribution path instead of committing the binary directly into git history.
 
