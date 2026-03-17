@@ -279,6 +279,18 @@ function upsertKeyword(keywords: Map<string, string>, keywordOrder: string[], ke
   keywords.set(key, value);
 }
 
+function removeKeyword(keywords: Map<string, string>, keywordOrder: string[], key: string) {
+  if (!keywords.has(key)) {
+    return;
+  }
+
+  keywords.delete(key);
+  const index = keywordOrder.indexOf(key);
+  if (index >= 0) {
+    keywordOrder.splice(index, 1);
+  }
+}
+
 function formatHeaderOffset(value: number): string {
   const safeValue = value > 99_999_999 ? 0 : Math.max(value, 0);
   return safeValue.toString().padStart(8, " ");
@@ -360,7 +372,15 @@ function buildEditedBytes(file: FcsFileRecord, channelTemplate: ChannelEdit[], o
     if (edit.primaryName.trim().length > 0) {
       upsertKeyword(keywords, keywordOrder, `$P${channel.index}N`, edit.primaryName.trim());
     }
-    upsertKeyword(keywords, keywordOrder, `$P${channel.index}S`, edit.secondaryName);
+
+    const secondaryKey = `$P${channel.index}S`;
+    const secondaryName = edit.secondaryName.trim();
+    if (secondaryName.length > 0) {
+      upsertKeyword(keywords, keywordOrder, secondaryKey, secondaryName);
+    } else {
+      // Omit empty labels to avoid delimiter-only runs that some tools misparse.
+      removeKeyword(keywords, keywordOrder, secondaryKey);
+    }
   }
 
   upsertKeyword(keywords, keywordOrder, "$FIL", outputFileName);
