@@ -179,39 +179,6 @@ function sliceInclusive(bytes: Uint8Array, start: number, end: number): Uint8Arr
   return bytes.subarray(start, end + 1);
 }
 
-function splitEscaped(text: string, delimiter: string): string[] {
-  const result: string[] = [];
-  let current = "";
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char !== delimiter) {
-      current += char;
-      continue;
-    }
-
-    const next = text[index + 1];
-    if (next === delimiter) {
-      current += delimiter;
-      index += 1;
-      continue;
-    }
-
-    result.push(current);
-    current = "";
-  }
-
-  if (current.length > 0) {
-    result.push(current);
-  }
-
-  return result;
-}
-
-function unescapeText(value: string, delimiter: string): string {
-  return value.replaceAll(`${delimiter}${delimiter}`, delimiter);
-}
-
 function escapeText(value: string, delimiter: string): string {
   return value.replaceAll(delimiter, `${delimiter}${delimiter}`);
 }
@@ -227,13 +194,45 @@ function parseTextSegment(textBytes: Uint8Array): {
 
   const delimiter = String.fromCharCode(textBytes[0]);
   const body = decodeLatin1(textBytes.subarray(1));
-  const tokens = splitEscaped(body, delimiter);
   const keywordOrder: string[] = [];
   const keywords = new Map<string, string>();
+  let cursor = 0;
 
-  for (let index = 0; index + 1 < tokens.length; index += 2) {
-    const key = unescapeText(tokens[index], delimiter);
-    const value = unescapeText(tokens[index + 1], delimiter);
+  while (cursor < body.length) {
+    let key = "";
+    while (cursor < body.length && body[cursor] !== delimiter) {
+      key += body[cursor];
+      cursor += 1;
+    }
+
+    if (key.length === 0 && cursor >= body.length) {
+      break;
+    }
+
+    if (cursor < body.length && body[cursor] === delimiter) {
+      cursor += 1;
+    }
+
+    let value = "";
+    while (cursor < body.length) {
+      const char = body[cursor];
+      if (char !== delimiter) {
+        value += char;
+        cursor += 1;
+        continue;
+      }
+
+      const next = body[cursor + 1];
+      if (next === delimiter) {
+        value += delimiter;
+        cursor += 2;
+        continue;
+      }
+
+      cursor += 1;
+      break;
+    }
+
     if (!keywords.has(key)) {
       keywordOrder.push(key);
     }
