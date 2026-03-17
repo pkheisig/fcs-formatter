@@ -150,6 +150,8 @@ const CYTOMETER_CONFIGS: CytometerConfig[] = [
   },
 ];
 
+const ALL_DETECTORS = CYTOMETER_CONFIGS.flatMap((config) => config.detectors);
+
 function decodeLatin1(bytes: Uint8Array): string {
   const chunkSize = 8192;
   let output = "";
@@ -182,6 +184,10 @@ function sliceInclusive(bytes: Uint8Array, start: number, end: number): Uint8Arr
 
 function escapeText(value: string, delimiter: string): string {
   return value.replaceAll(delimiter, `${delimiter}${delimiter}`);
+}
+
+function normalizeCompToken(value: string): string {
+  return value.toUpperCase().replace(/\s+/g, "").replace(/[^A-Z0-9]/g, "");
 }
 
 function parseTextSegment(textBytes: Uint8Array): {
@@ -291,6 +297,102 @@ function removeKeyword(keywords: Map<string, string>, keywordOrder: string[], ke
   }
 }
 
+type SpillInfo = {
+  featureCount: number;
+  features: string[];
+  values: string[];
+};
+
+function parseSpillValue(raw: string): SpillInfo | null {
+  const parts = raw.split(",");
+  if (parts.length < 2) return null;
+
+  const featureCount = Number.parseInt(parts[0]?.trim() ?? "", 10);
+  if (!Number.isFinite(featureCount) || featureCount <= 0) return null;
+
+  const minimumSize = 1 + featureCount + featureCount * featureCount;
+  if (parts.length < minimumSize) return null;
+
+  const features = parts.slice(1, 1 + featureCount);
+  const values = parts.slice(1 + featureCount);
+  return { featureCount, features, values };
+}
+
+function buildSpillAliasMap(channels: Array<{ original: string; finalName: string; fluorescence: boolean }>): Map<string, string> {
+  const aliases = new Map<string, string>();
+
+  for (const channel of channels) {
+    if (!channel.fluorescence) continue;
+
+    const finalName = channel.finalName.trim();
+    const original = channel.original.trim();
+    if (finalName.length === 0) continue;
+
+    aliases.set(normalizeCompToken(finalName), finalName);
+    if (original.length > 0) {
+      aliases.set(normalizeCompToken(original), finalName);
+    }
+
+    const fluorTokens = [normalizeCompToken(original), normalizeCompToken(finalName)].filter((token) => token.length > 0);
+    if (fluorTokens.length === 0) continue;
+
+    for (const detectorConfig of ALL_DETECTORS) {
+      const detectorHasFluor = detectorConfig.fluorophores.some((fluor) =>
+        fluorTokens.includes(normalizeCompToken(fluor)),
+      );
+      if (!detectorHasFluor) continue;
+      aliases.set(normalizeCompToken(detectorConfig.filter), finalName);
+    }
+  }
+
+  return aliases;
+}
+
+function rewriteSpillValue(raw: string, channels: Array<{ original: string; finalName: string; fluorescence: boolean }>): string {
+  const parsed = parseSpillValue(raw);
+  if (!parsed) return raw;
+
+  const aliases = buildSpillAliasMap(channels);
+  const fluorescenceChannels = channels.filter((channel) => channel.fluorescence && channel.finalName.trim().length > 0);
+  const renamedFeatures = [...parsed.features];
+  let renamedCount = 0;
+  let unresolvedCount = 0;
+
+  for (let index = 0; index < renamedFeatures.length; index += 1) {
+    const feature = renamedFeatures[index];
+    const mapped = aliases.get(normalizeCompToken(feature));
+    if (mapped) {
+      if (mapped !== feature) {
+        renamedFeatures[index] = mapped;
+        renamedCount += 1;
+      }
+    } else {
+      unresolvedCount += 1;
+    }
+  }
+
+  // Fallback for detector-labeled matrices with no direct aliases:
+  // use fluorescence channel order when matrix size matches.
+  if (
+    renamedCount === 0 &&
+    unresolvedCount === parsed.featureCount &&
+    parsed.featureCount <= fluorescenceChannels.length
+  ) {
+    for (let index = 0; index < parsed.featureCount; index += 1) {
+      const fallback = fluorescenceChannels[index]?.finalName.trim();
+      if (fallback) {
+        renamedFeatures[index] = fallback;
+      }
+    }
+  }
+
+  if (renamedFeatures.every((value, index) => value === parsed.features[index])) {
+    return raw;
+  }
+
+  return [String(parsed.featureCount), ...renamedFeatures, ...parsed.values].join(",");
+}
+
 function formatHeaderOffset(value: number): string {
   const safeValue = value > 99_999_999 ? 0 : Math.max(value, 0);
   return safeValue.toString().padStart(8, " ");
@@ -362,6 +464,7 @@ function buildEditedBytes(file: FcsFileRecord, channelTemplate: ChannelEdit[], o
 
   const keywords = new Map(raw.keywords);
   const keywordOrder = [...raw.keywordOrder];
+  const renamedChannels: Array<{ original: string; finalName: string; fluorescence: boolean }> = [];
 
   for (const channel of file.channels) {
     const edit =
@@ -369,8 +472,18 @@ function buildEditedBytes(file: FcsFileRecord, channelTemplate: ChannelEdit[], o
       templateByOriginal.get(channel.originalPrimaryName);
     if (!edit) continue;
 
+    const finalPrimaryName = edit.primaryName.trim().length > 0
+      ? edit.primaryName.trim()
+      : channel.originalPrimaryName;
+
+    renamedChannels.push({
+      original: channel.originalPrimaryName,
+      finalName: finalPrimaryName,
+      fluorescence: channel.fluorescence,
+    });
+
     if (edit.primaryName.trim().length > 0) {
-      upsertKeyword(keywords, keywordOrder, `$P${channel.index}N`, edit.primaryName.trim());
+      upsertKeyword(keywords, keywordOrder, `$P${channel.index}N`, finalPrimaryName);
     }
 
     const secondaryKey = `$P${channel.index}S`;
@@ -380,6 +493,15 @@ function buildEditedBytes(file: FcsFileRecord, channelTemplate: ChannelEdit[], o
     } else {
       // Omit empty labels to avoid delimiter-only runs that some tools misparse.
       removeKeyword(keywords, keywordOrder, secondaryKey);
+    }
+  }
+
+  for (const spillKey of ["SPILL", "$SPILL", "SPILLOVER", "$SPILLOVER"]) {
+    const current = keywords.get(spillKey);
+    if (!current) continue;
+    const rewritten = rewriteSpillValue(current, renamedChannels);
+    if (rewritten !== current) {
+      upsertKeyword(keywords, keywordOrder, spillKey, rewritten);
     }
   }
 
