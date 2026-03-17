@@ -63,6 +63,7 @@ export type FcsFileRecord = {
 };
 
 export type ChannelEdit = {
+  index?: number;
   originalPrimaryName: string;
   primaryName: string;
   secondaryName: string;
@@ -338,6 +339,11 @@ function mergeBytes(parts: Uint8Array[]): Uint8Array {
 
 function buildEditedBytes(file: FcsFileRecord, channelTemplate: ChannelEdit[], outputFileName: string): Uint8Array {
   const { raw } = file;
+  const templateByIndex = new Map(
+    channelTemplate
+      .filter((entry) => Number.isFinite(entry.index))
+      .map((entry) => [entry.index as number, entry] as const),
+  );
   const templateByOriginal = new Map(
     channelTemplate.map((entry) => [entry.originalPrimaryName, entry] as const),
   );
@@ -346,7 +352,9 @@ function buildEditedBytes(file: FcsFileRecord, channelTemplate: ChannelEdit[], o
   const keywordOrder = [...raw.keywordOrder];
 
   for (const channel of file.channels) {
-    const edit = templateByOriginal.get(channel.originalPrimaryName);
+    const edit =
+      templateByIndex.get(channel.index) ??
+      templateByOriginal.get(channel.originalPrimaryName);
     if (!edit) continue;
 
     if (edit.primaryName.trim().length > 0) {

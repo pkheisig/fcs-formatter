@@ -533,6 +533,7 @@ export default function App() {
     setIsBusy(true);
     try {
       const channelTemplate: ChannelEdit[] = templateFile.channels.map((channel) => ({
+        index: channel.index,
         originalPrimaryName: channel.originalPrimaryName,
         primaryName: channel.primaryName.trim(),
         secondaryName: channel.secondaryName,
