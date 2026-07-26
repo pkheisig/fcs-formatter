@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { Settings, FilePlus, FolderPlus, Trash2, RefreshCw, Wand2, Save, FileUp, PlusCircle, FileSpreadsheet, Code } from "lucide-react";
+import { Settings, FilePlus, FolderPlus, Trash2, RefreshCw, Wand2, Save, FileUp, PlusCircle, FileSpreadsheet, Code, CircleHelp } from "lucide-react";
 import {
   createExportFiles,
   getCytometerConfigs,
@@ -11,6 +11,7 @@ import {
   type FcsFileRecord,
 } from "./fcs-web";
 import { findCanonicalFluorophore } from "./fluorophore-matching";
+import { GuideDialog } from "./GuideDialog";
 
 type WorkspaceTab = "filenames" | "primary" | "secondary" | "parameters";
 
@@ -142,6 +143,7 @@ export default function App() {
   const [configName, setConfigName] = useState("");
 
   const [showSettings, setShowSettings] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("light");
   const [defaultSecondaryMapping, setDefaultSecondaryMapping] = useState(true);
 
@@ -619,6 +621,14 @@ export default function App() {
             <Settings size={18} />
           </button>
           <h1>FCS Manager</h1>
+          <button
+            type="button"
+            className="btn ghost-button guide-trigger"
+            onClick={() => setShowGuide(true)}
+            aria-haspopup="dialog"
+          >
+            <CircleHelp size={16} aria-hidden="true" /> Guide
+          </button>
         </div>
 
         <div className="hero-actions">
@@ -1094,6 +1104,7 @@ export default function App() {
           </div>
         </div>
       )}
+      {showGuide && <GuideDialog onClose={() => setShowGuide(false)} />}
     </div>
   );
 }

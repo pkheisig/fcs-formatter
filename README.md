@@ -13,6 +13,7 @@ The UI now explicitly guides this workflow: set fluorophores in Primary and mark
 
 ## What Changed
 
+- Added a header Guide with a workflow overview and feature-by-feature help.
 - Removed per-row `Apply` / `Apply All` actions from channel naming.
 - Suggested fluorophores are shown in `Primary Names` as a reference only.
 - Editing a value in `Secondary Names` now applies that detector's marker name across all loaded files by default.
