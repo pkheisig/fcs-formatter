@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
     "build": "tsc && vite build",
     "build:windows:local": "tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc",
     "build:windows:ci": "tauri build --target x86_64-pc-windows-msvc --bundles nsis",

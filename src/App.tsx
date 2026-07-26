@@ -10,6 +10,7 @@ import {
   type FcsInputFile,
   type FcsFileRecord,
 } from "./fcs-web";
+import { findCanonicalFluorophore } from "./fluorophore-matching";
 
 type WorkspaceTab = "filenames" | "primary" | "secondary" | "parameters";
 
@@ -29,10 +30,6 @@ const tabs: { id: WorkspaceTab; label: string; description: string }[] = [
 
 const NAMING_GUIDANCE =
   "Tip: set Primary Names to fluorophores and Secondary Names to marker names.";
-
-function normalizeToken(value: string) {
-  return value.toLowerCase().replace("fluor", "").replace(/[^a-z0-9]/g, "");
-}
 
 function normalizeDetector(value: string) {
   return value.toUpperCase().replace(/[–—]/g, "-").replace(/\s+/g, "");
@@ -458,11 +455,7 @@ export default function App() {
         const detectorConfig = findDetectorConfig(channel.detector);
         if (!detectorConfig) return channel;
 
-        const match = tokens.find((token) =>
-          detectorConfig.fluorophores.some(
-            (candidate) => normalizeToken(candidate) === normalizeToken(token)
-          )
-        );
+        const match = findCanonicalFluorophore(tokens, detectorConfig.fluorophores);
 
         return match ? { ...channel, primaryName: match } : channel;
       })

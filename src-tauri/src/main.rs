@@ -113,7 +113,7 @@ fn cytometer_configs() -> Vec<CytometerConfig> {
                 detector("525/50-B-A", &["FITC", "GFP", "Alexa 488", "CFSE"]),
                 detector("575/26-B-A", &["PE", "PKH26"]),
                 detector("610/20-B-A", &["PE-CF594", "Texas Red", "PE-Texas Red", "PI"]),
-                detector("695/40-B-A", &["PerCP", "PE-Cy5", "7AAD", "PE-Cy5.5", "PerCP-Cy5.5", "PerCP eFluor 710"]),
+                detector("695/40-B-A", &["PerCP-Cy5.5", "PerCP", "PE-Cy5", "7AAD", "PE-Cy5.5", "PerCP eFluor 710"]),
                 detector("780/60-B-A", &["PE-CY7", "PC7", "PE-Vio 7"]),
                 detector("670/30-R-A", &["APC", "Alexa 647", "TOPRO-3", "TOTO-3", "eFluor 660"]),
                 detector("730/45-R-A", &["Alexa 700", "eFluor 710", "APC-Alexa 700"]),
@@ -131,7 +131,7 @@ fn cytometer_configs() -> Vec<CytometerConfig> {
                 detector("780/60-V-A", &["BV786"]),
                 detector("488/10-B-A", &["SSC"]),
                 detector("529/24-B-A", &["FITC", "Alexa 488", "GFP"]),
-                detector("695/40-B-A", &["PerCP", "PerCP-Cy5.5", "PerCP eFluor 710"]),
+                detector("695/40-B-A", &["PerCP-Cy5.5", "PerCP", "PerCP eFluor 710"]),
                 detector("582/15-YG-A", &["PE"]),
                 detector("610/20-YG-A", &["PE-CF 594", "mCherry", "PE-Texas Red", "PI", "7AAD"]),
                 detector("670/14-YG-A", &["PE-Cy5"]),
@@ -430,7 +430,23 @@ mod tests {
     use tempfile::tempdir;
 
     fn sample_file() -> PathBuf {
-        PathBuf::from("../fcs/76_UT.fcs")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../B080_T_EML.fcs")
+    }
+
+    #[test]
+    fn percp_cy55_is_the_default_for_the_695_40_blue_detector() {
+        for config in cytometer_configs() {
+            let detector = config
+                .detectors
+                .iter()
+                .find(|detector| detector.filter == "695/40-B-A")
+                .expect("Fortessa config should include the 695/40 blue detector");
+
+            assert_eq!(
+                detector.common_fluorophore.as_deref(),
+                Some("PerCP-Cy5.5")
+            );
+        }
     }
 
     #[test]
