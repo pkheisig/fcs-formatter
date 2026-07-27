@@ -3,6 +3,10 @@
 FCS Manager is a browser-based tool for cleaning up FCS metadata without modifying source files.  
 Load one file or a full folder, set channel names, preview output filenames, and save updated `.fcs` copies directly into a folder (no ZIP).
 
+The hosted app is:
+
+**https://pkheisig.github.io/fcs-manager/**
+
 ## Current Naming Model
 
 - `Primary Names` = fluorophores (`$PnN`)
@@ -61,24 +65,12 @@ In Settings, `Default Name Mapping` supports:
 - JSON export/import
 - toggling auto-assign of default primary fluorophores
 
-## Distribution For Non-Technical Colleagues (Recommended)
+## Browser and privacy
 
-Use GitHub Pages via `.github/workflows/web-pages.yml`:
-
-1. Push to `master` (or run the workflow manually).
-2. Open Actions -> `Deploy Web App`.
-3. Share the GitHub Pages URL.
-
-URL format:
-
-```text
-https://<your-github-username>.github.io/fcs-manager/
-```
-
-Cost and privacy notes:
-
+- The hosted app requires no installation or code download.
+- Chrome or Edge is recommended for direct folder saving through the File System Access API.
 - GitHub hosts the app's static files (HTML/CSS/JS build output in `dist/`).
-- User-selected FCS files are processed in-browser and are not uploaded by default.
+- User-selected FCS files are processed locally in the browser and are not uploaded to GitHub.
 
 ## Local Development
 
@@ -91,33 +83,4 @@ Production build:
 
 ```bash
 npm run build
-```
-
-## Optional Windows Installer (Tauri)
-
-Local debug desktop build:
-
-```bash
-npm run tauri -- build --debug
-```
-
-Cross-compile Windows installer from macOS:
-
-```bash
-brew install llvm nsis
-rustup target add x86_64-pc-windows-msvc
-cargo install cargo-xwin
-npm run build:windows:local
-```
-
-CI release installer workflow:
-
-- `.github/workflows/windows-installer.yml`
-- manual run: `Build Windows Installer`
-- tag push (`v*`): attaches installer to GitHub Release
-
-Output path:
-
-```text
-src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/
 ```
